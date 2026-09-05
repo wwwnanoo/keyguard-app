@@ -1,13 +1,7 @@
 package com.artemchep.keyguard.wear.feature.vault
 
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.Password
-import androidx.compose.material.icons.outlined.Security
-import androidx.compose.material.icons.outlined.SortByAlpha
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.graphics.vector.ImageVector
 import arrow.core.identity
 import arrow.core.partially1
 import com.artemchep.keyguard.AppMode
@@ -16,7 +10,6 @@ import com.artemchep.keyguard.common.io.bind
 import com.artemchep.keyguard.common.io.nullable
 import com.artemchep.keyguard.common.model.DFilter
 import com.artemchep.keyguard.common.model.DSecret
-import com.artemchep.keyguard.common.model.formatH
 import com.artemchep.keyguard.common.model.getShapeState
 import com.artemchep.keyguard.common.service.clipboard.ClipboardService
 import com.artemchep.keyguard.common.service.deeplink.DeeplinkService
@@ -40,15 +33,9 @@ import com.artemchep.keyguard.common.util.flow.EventFlow
 import com.artemchep.keyguard.common.util.flow.persistingStateIn
 import com.artemchep.keyguard.feature.attachments.SelectableItemState
 import com.artemchep.keyguard.feature.attachments.SelectableItemStateRaw
-import com.artemchep.keyguard.feature.decorator.ItemDecorator
-import com.artemchep.keyguard.feature.decorator.ItemDecoratorDate
-import com.artemchep.keyguard.feature.decorator.ItemDecoratorNone
-import com.artemchep.keyguard.feature.decorator.ItemDecoratorTitle
 import com.artemchep.keyguard.feature.generator.history.mapLatestScoped
 import com.artemchep.keyguard.feature.home.settings.accounts.model.AccountType
 import com.artemchep.keyguard.feature.home.vault.VaultRoute
-import com.artemchep.keyguard.feature.home.vault.component.obscurePassword
-import com.artemchep.keyguard.feature.home.vault.model.SortItem
 import com.artemchep.keyguard.feature.home.vault.model.VaultItem2
 import com.artemchep.keyguard.feature.home.vault.screen.ComparatorHolder
 import com.artemchep.keyguard.feature.home.vault.screen.ScrollPositionState
@@ -57,19 +44,15 @@ import com.artemchep.keyguard.feature.home.vault.screen.OurFilterResult
 import com.artemchep.keyguard.feature.home.vault.screen.VaultListState
 import com.artemchep.keyguard.feature.home.vault.screen.createFilter
 import com.artemchep.keyguard.feature.home.vault.screen.createFilterItemsFlow
+import com.artemchep.keyguard.feature.home.vault.screen.createVaultListSortDecorator
+import com.artemchep.keyguard.feature.home.vault.screen.createVaultSortItemsFlow
 import com.artemchep.keyguard.feature.home.vault.screen.toVaultListItem
 import com.artemchep.keyguard.feature.home.vault.search.filter.FilterHolder
 import com.artemchep.keyguard.feature.home.vault.search.sort.AlphabeticalSort
-import com.artemchep.keyguard.feature.home.vault.search.sort.LastCreatedSort
-import com.artemchep.keyguard.feature.home.vault.search.sort.LastModifiedSort
 import com.artemchep.keyguard.feature.home.vault.search.sort.PasswordLastModifiedSort
-import com.artemchep.keyguard.feature.home.vault.search.sort.PasswordSort
 import com.artemchep.keyguard.feature.home.vault.search.sort.PasswordStrengthSort
-import com.artemchep.keyguard.feature.home.vault.util.AlphabeticalSortMinItemsSize
 import com.artemchep.keyguard.feature.largetype.LargeTypeRoute
 import com.artemchep.keyguard.feature.largetype.LargeTypeRoute.Args
-import com.artemchep.keyguard.feature.localization.TextHolder
-import com.artemchep.keyguard.feature.localization.wrap
 import com.artemchep.keyguard.feature.navigation.NavigationIntent
 import com.artemchep.keyguard.feature.navigation.registerRouteResultReceiver
 import com.artemchep.keyguard.feature.navigation.state.PersistedStorage
@@ -77,10 +60,8 @@ import com.artemchep.keyguard.feature.navigation.state.produceScreenState
 import com.artemchep.keyguard.feature.passkeys.PasskeysCredentialViewRoute
 import com.artemchep.keyguard.feature.passkeys.PasskeysCredentialViewRouteFactory
 import com.artemchep.keyguard.platform.recordException
-import com.artemchep.keyguard.res.Res
 import com.artemchep.keyguard.res.*
 import com.artemchep.keyguard.wear.feature.auth.WearLoginMethodRoute
-import org.jetbrains.compose.resources.StringResource
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toPersistentList
 import kotlinx.coroutines.Dispatchers
@@ -393,193 +374,7 @@ internal fun wearVaultListScreenState(
         .flowOn(Dispatchers.Default)
         .shareIn(this, SharingStarted.WhileSubscribed(5000L), replay = 1)
 
-    fun createComparatorAction(
-        id: String,
-        title: StringResource,
-        icon: ImageVector? = null,
-        config: ComparatorHolder,
-    ) = SortItem.Item(
-        id = id,
-        config = config,
-        title = TextHolder.Res(title),
-        icon = icon,
-        onClick = {
-            sortSink.value = config
-        },
-        checked = false,
-    )
-
-    data class Fuu(
-        val item: SortItem.Item,
-        val subItems: List<SortItem.Item>,
-    )
-
-    val cam = mapOf(
-        AlphabeticalSort to Fuu(
-            item = createComparatorAction(
-                id = "title",
-                icon = Icons.Outlined.SortByAlpha,
-                title = Res.string.sortby_title_title,
-                config = ComparatorHolder(
-                    comparator = AlphabeticalSort,
-                    favourites = true,
-                ),
-            ),
-            subItems = listOf(
-                createComparatorAction(
-                    id = "title_normal",
-                    title = Res.string.sortby_title_normal_mode,
-                    config = ComparatorHolder(
-                        comparator = AlphabeticalSort,
-                        favourites = true,
-                    ),
-                ),
-                createComparatorAction(
-                    id = "title_rev",
-                    title = Res.string.sortby_title_reverse_mode,
-                    config = ComparatorHolder(
-                        comparator = AlphabeticalSort,
-                        reversed = true,
-                        favourites = true,
-                    ),
-                ),
-            ),
-        ),
-        LastModifiedSort to Fuu(
-            item = createComparatorAction(
-                id = "modify_date",
-                icon = Icons.Outlined.CalendarMonth,
-                title = Res.string.sortby_modification_date_title,
-                config = ComparatorHolder(
-                    comparator = LastModifiedSort,
-                ),
-            ),
-            subItems = listOf(
-                createComparatorAction(
-                    id = "modify_date_normal",
-                    title = Res.string.sortby_modification_date_normal_mode,
-                    config = ComparatorHolder(
-                        comparator = LastModifiedSort,
-                    ),
-                ),
-                createComparatorAction(
-                    id = "modify_date_rev",
-                    title = Res.string.sortby_modification_date_reverse_mode,
-                    config = ComparatorHolder(
-                        comparator = LastModifiedSort,
-                        reversed = true,
-                    ),
-                ),
-            ),
-        ),
-        PasswordSort to Fuu(
-            item = createComparatorAction(
-                id = "password",
-                icon = Icons.Outlined.Password,
-                title = Res.string.sortby_password_title,
-                config = ComparatorHolder(
-                    comparator = PasswordSort,
-                ),
-            ),
-            subItems = listOf(
-                createComparatorAction(
-                    id = "password_normal",
-                    title = Res.string.sortby_password_normal_mode,
-                    config = ComparatorHolder(
-                        comparator = PasswordSort,
-                    ),
-                ),
-                createComparatorAction(
-                    id = "password_rev",
-                    title = Res.string.sortby_password_reverse_mode,
-                    config = ComparatorHolder(
-                        comparator = PasswordSort,
-                        reversed = true,
-                    ),
-                ),
-            ),
-        ),
-        PasswordLastModifiedSort to Fuu(
-            item = createComparatorAction(
-                id = "password_last_modified_strength",
-                icon = Icons.Outlined.CalendarMonth,
-                title = Res.string.sortby_password_modification_date_title,
-                config = ComparatorHolder(
-                    comparator = PasswordLastModifiedSort,
-                ),
-            ),
-            subItems = listOf(
-                createComparatorAction(
-                    id = "password_last_modified_normal",
-                    title = Res.string.sortby_password_modification_date_normal_mode,
-                    config = ComparatorHolder(
-                        comparator = PasswordLastModifiedSort,
-                    ),
-                ),
-                createComparatorAction(
-                    id = "password_last_modified_rev",
-                    title = Res.string.sortby_password_modification_date_reverse_mode,
-                    config = ComparatorHolder(
-                        comparator = PasswordLastModifiedSort,
-                        reversed = true,
-                    ),
-                ),
-            ),
-        ),
-        PasswordStrengthSort to Fuu(
-            item = createComparatorAction(
-                id = "password_strength",
-                icon = Icons.Outlined.Security,
-                title = Res.string.sortby_password_strength_title,
-                config = ComparatorHolder(
-                    comparator = PasswordStrengthSort,
-                ),
-            ),
-            subItems = listOf(
-                createComparatorAction(
-                    id = "password_strength_normal",
-                    title = Res.string.sortby_password_strength_normal_mode,
-                    config = ComparatorHolder(
-                        comparator = PasswordStrengthSort,
-                    ),
-                ),
-                createComparatorAction(
-                    id = "password_strength_rev",
-                    title = Res.string.sortby_password_strength_reverse_mode,
-                    config = ComparatorHolder(
-                        comparator = PasswordStrengthSort,
-                        reversed = true,
-                    ),
-                ),
-            ),
-        ),
-    )
-
-    val comparatorsListFlow = sortSink
-        .map { orderConfig ->
-            val mainItems = cam.values
-                .map { it.item }
-                .map { item ->
-                    val checked = item.config.comparator == orderConfig.comparator
-                    item.copy(checked = checked)
-                }
-            val subItems = cam[orderConfig.comparator]?.subItems.orEmpty()
-                .map { item ->
-                    val checked = item.config == orderConfig
-                    item.copy(checked = checked)
-                }
-
-            val out = mutableListOf<SortItem>()
-            out += mainItems
-            if (subItems.isNotEmpty()) {
-                out += SortItem.Section(
-                    id = "sub_items_section",
-                    text = TextHolder.Res(Res.string.options),
-                )
-                out += subItems
-            }
-            out
-        }
+    val comparatorsListFlow = createVaultSortItemsFlow(sortSink)
 
     data class Rev<T>(
         val count: Int,
@@ -912,61 +707,11 @@ private fun createFilteredCiphersFlow(
         val keys = mutableSetOf<String>()
 
         val orderConfig = state.orderConfig
-        val decorator = when {
-            orderConfig?.comparator is AlphabeticalSort &&
-                    // it looks ugly on small lists
-                    state.list.size >= AlphabeticalSortMinItemsSize ->
-                ItemDecoratorTitle<VaultItem2, VaultItem2.Item>(
-                    selector = { it.title.text },
-                    factory = { id, text ->
-                        VaultItem2.Section(
-                            id = id,
-                            text = TextHolder.Value(text),
-                        )
-                    },
-                )
-
-            orderConfig?.comparator is LastCreatedSort ->
-                ItemDecoratorDate<VaultItem2, VaultItem2.Item>(
-                    dateFormatter = dateFormatter,
-                    selector = { it.createdDate },
-                    factory = { id, text ->
-                        VaultItem2.Section(
-                            id = id,
-                            text = TextHolder.Value(text),
-                        )
-                    },
-                )
-
-            orderConfig?.comparator is LastModifiedSort ->
-                ItemDecoratorDate<VaultItem2, VaultItem2.Item>(
-                    dateFormatter = dateFormatter,
-                    selector = { it.revisionDate },
-                    factory = { id, text ->
-                        VaultItem2.Section(
-                            id = id,
-                            text = TextHolder.Value(text),
-                        )
-                    },
-                )
-
-            orderConfig?.comparator is PasswordSort -> PasswordDecorator()
-
-            orderConfig?.comparator is PasswordLastModifiedSort ->
-                ItemDecoratorDate<VaultItem2, VaultItem2.Item>(
-                    dateFormatter = dateFormatter,
-                    selector = { it.passwordRevisionDate },
-                    factory = { id, text ->
-                        VaultItem2.Section(
-                            id = id,
-                            text = TextHolder.Value(text),
-                        )
-                    },
-                )
-
-            orderConfig?.comparator is PasswordStrengthSort -> PasswordStrengthDecorator()
-            else -> ItemDecoratorNone
-        }
+        val decorator = createVaultListSortDecorator(
+            orderConfig = orderConfig,
+            itemCount = state.list.size,
+            dateFormatter = dateFormatter,
+        )
 
         val sectionIds = mutableSetOf<String>()
         val items = run {
@@ -1004,61 +749,3 @@ private fun createFilteredCiphersFlow(
             filterConfig = state.filterConfig,
         )
     }
-
-private typealias Decorator = ItemDecorator<VaultItem2, VaultItem2.Item>
-
-private class PasswordDecorator : Decorator {
-    /**
-     * Last shown password, used to not repeat the sections
-     * if it stays the same.
-     */
-    private var lastPassword: Any? = Any()
-
-    override suspend fun getOrNull(item: VaultItem2.Item): VaultItem2? {
-        val pw = item.password
-        if (pw == lastPassword) {
-            return null
-        }
-
-        lastPassword = pw
-        if (pw == null) {
-            return VaultItem2.Section(
-                id = "decorator.pw.empty",
-                text = Res.string.no_password.wrap(),
-            )
-        }
-        val text = obscurePassword(pw)
-        return VaultItem2.Section(
-            id = "decorator.pw.$pw",
-            text = TextHolder.Value(text),
-            caps = false,
-        )
-    }
-}
-
-private class PasswordStrengthDecorator : Decorator {
-    /**
-     * Last shown password score, used to not repeat the sections
-     * if it stays the same.
-     */
-    private var lastScore: Any? = Any()
-
-    override suspend fun getOrNull(item: VaultItem2.Item): VaultItem2? {
-        val score = item.score?.score
-        if (score == lastScore) {
-            return null
-        }
-
-        lastScore = score
-        if (score == null) {
-            return VaultItem2.Section(
-                id = "decorator.pw_strength.empty",
-                text = Res.string.no_password.wrap(),
-            )
-        }
-        return VaultItem2.Section(
-            id = "decorator.pw_strength.${score.name}",
-            text = TextHolder.Res(score.formatH()),
-        )
-    }
-}
