@@ -15,8 +15,8 @@ saves a lot of confusion:
 - the **app password** — created when you first set up Keyguard, it locks
   everything Keyguard keeps on this device: the [local copy of your vault](/docs/security/).
 
-The app password never gets stored on the device nor sent over the network —
-it is used to generate a secret key that encrypts the local data. Because it
+Keyguard uses the app password to derive a secret key that encrypts local data;
+it is never stored on disk or transmitted over the network. Because it
 is local, each of your devices can have a different one, and you can change
 it any time via **Change app password** without touching your accounts.
 
@@ -48,7 +48,7 @@ The security settings control when the vault locks itself:
 > **Security note on persisting the vault key.** With the option on, the
 > key that unlocks your local data is written to the device's internal
 > storage (Android) or disk (Desktop), so the vault stays unlocked even after the app is unloaded from
-> memory. That is a deliberate trade-off — as the app itself warns, if the
+> memory. That is a deliberate trade-off — as the app warns, if the
 > device's storage is compromised, the attacker gains access to
 > the local vault data. Leave it off when that risk matters more to you
 > than the convenience of fewer unlocks.
@@ -68,4 +68,4 @@ right back. **Signing out** of an account removes its data from Keyguard.
   live with your server — check the web vault.
 - **KDBX password** — there is no recovery by design.
 
-Keep the password safe, and [configure backups](/docs/backups/) just in case.
+Keep the password safe, and [configure backups](/docs/backups/).
