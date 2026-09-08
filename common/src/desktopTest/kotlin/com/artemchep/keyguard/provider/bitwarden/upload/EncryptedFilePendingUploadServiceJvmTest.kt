@@ -632,6 +632,7 @@ private class CopyingFileEncryptionCodec : FileEncryptionCodec {
         input: Source,
         output: Sink,
         key: ByteArray,
+        checkCancellation: () -> Unit,
     ) {
         output.write(input.readByteArray())
     }
@@ -645,6 +646,7 @@ private class CopyingFileEncryptionCodec : FileEncryptionCodec {
         input: Source,
         output: Sink,
         key: ByteArray,
+        checkCancellation: () -> Unit,
     ): FileEncryptionCodec.EncryptionResult {
         val data = input.readByteArray()
         output.write(data)

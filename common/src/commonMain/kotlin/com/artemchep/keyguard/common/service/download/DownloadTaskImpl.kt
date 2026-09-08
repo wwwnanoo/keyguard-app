@@ -48,11 +48,22 @@ class DownloadTaskImpl internal constructor(
         key: ByteArray?,
         writer: DownloadWriter,
     ): Flow<DownloadProgress> = flow<DownloadProgress> {
+        val downloadContext = currentCoroutineContext()
         val result = try {
-            val plainBytes = key?.let { fileEncryptionCodec.decrypt(data, it) } ?: data
-            writer.writeBytes(plainBytes)
+            withContext(Dispatchers.IO) {
+                data.asDownloadSource(downloadContext::ensureActive).buffered().use { source ->
+                    writer.writeSource(
+                        source = source,
+                        key = key,
+                        fileEncryptionCodec = fileEncryptionCodec,
+                        stagingSpoolFactory = stagingSpoolFactory,
+                        checkCancellation = downloadContext::ensureActive,
+                    )
+                }
+            }
             writer.locationUri().right()
         } catch (e: Throwable) {
+            currentCoroutineContext().ensureActive()
             e.throwIfFatalOrCancellation()
             e.left()
         }
@@ -106,6 +117,35 @@ class DownloadTaskImpl internal constructor(
         }
 
         send(DownloadProgress.Complete(result))
+    }
+}
+
+/** Borrows the bytes and copies only the next bounded read into the streaming pipeline. */
+private fun ByteArray.asDownloadSource(
+    checkCancellation: () -> Unit,
+): RawSource = object : RawSource {
+    private var offset = 0
+    private var closed = false
+
+    override fun readAtMostTo(sink: Buffer, byteCount: Long): Long {
+        check(!closed) { "Download source is closed" }
+        require(byteCount >= 0L) { "Invalid download read size" }
+        checkCancellation()
+        return when {
+            byteCount == 0L -> 0L
+            offset == size -> -1L
+            else -> {
+                val length = minOf(byteCount, (size - offset).toLong(), 64L * 1024).toInt()
+                sink.write(this@asDownloadSource, offset, offset + length)
+                offset += length
+                checkCancellation()
+                length.toLong()
+            }
+        }
+    }
+
+    override fun close() {
+        closed = true
     }
 }
 
