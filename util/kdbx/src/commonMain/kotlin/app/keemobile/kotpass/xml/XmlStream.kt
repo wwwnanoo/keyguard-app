@@ -337,7 +337,7 @@ internal fun writeXml(
     output.flush()
 }
 
-private class BufferedSinkWriter(
+internal class BufferedSinkWriter(
     private val sink: BufferedSink,
 ) : Appendable {
     private val pending = StringBuilder(8_192)
@@ -370,8 +370,14 @@ private class BufferedSinkWriter(
 
     private fun flushIfNeeded() {
         if (pending.length >= 8_192) {
-            sink.writeUtf8(pending.toString())
+            // Encoding UTF-16 surrogate halves in separate UTF-8 writes replaces
+            // each half with '?', permanently losing the original character.
+            // Keep a trailing high surrogate until the next append completes it.
+            val trailingHighSurrogate = pending.last().takeIf { it.isHighSurrogate() }
+            val endIndex = pending.length - if (trailingHighSurrogate != null) 1 else 0
+            sink.writeUtf8(pending.toString(), 0, endIndex)
             pending.clear()
+            if (trailingHighSurrogate != null) pending.append(trailingHighSurrogate)
         }
     }
 }
