@@ -197,8 +197,7 @@ private fun decodeVer3x(
             header.innerRandomStreamKey,
         )
         val content =
-            try {
-                val plaintext = contentSource
+            contentSource.use { plaintext ->
                 val parsed =
                     contentParser.unmarshalContent(plaintext, saltGenerator) { meta ->
                         XmlContext.Decode(
@@ -209,15 +208,16 @@ private fun decodeVer3x(
                         )
                     }
                 plaintext.drainAndVerify()
+                val headerHash = parsed.meta.headerHash
+                if (validateHashes && headerHash != null && headerHash != rawHeaderData.sha256()) {
+                    throw FormatError.InvalidHeader("HeaderHash value does not match Sha256 of the header.")
+                }
+                // The terminal plaintext block does not end the enclosing cipher.
+                // Consume its remaining bytes and validate padding before closing it.
+                decryptedSource.drainAndVerify()
                 parsed
-            } finally {
-                contentSource.close()
             }
 
-        val headerHash = content.meta.headerHash
-        if (validateHashes && headerHash != null && headerHash != rawHeaderData.sha256()) {
-            throw FormatError.InvalidHeader("HeaderHash value does not match Sha256 of the header.")
-        }
         KeePassDatabase.Ver3x(credentials, header, content)
     }
 }

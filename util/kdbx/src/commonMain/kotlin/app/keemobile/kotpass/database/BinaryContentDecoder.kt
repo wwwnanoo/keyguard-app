@@ -188,20 +188,20 @@ private fun visitBinaryContentsVer3x(
             header.innerRandomStreamId,
             header.innerRandomStreamKey,
         )
-        val headerHash = try {
-            visitXmlBinaryContents(
-                source = contentSource,
+        contentSource.use { plaintext ->
+            val headerHash = visitXmlBinaryContents(
+                source = plaintext,
                 innerEncryption = saltGenerator,
                 visitor = XmlBinaryContentVisitor(visitor::visit),
                 checkCancellation = checkCancellation,
-            ).also {
-                contentSource.drainAndVerify()
+            )
+            plaintext.drainAndVerify()
+            if (validateHashes && headerHash != null && headerHash != rawHeaderData.sha256()) {
+                throw FormatError.InvalidHeader("HeaderHash value does not match Sha256 of the header.")
             }
-        } finally {
-            contentSource.close()
-        }
-        if (validateHashes && headerHash != null && headerHash != rawHeaderData.sha256()) {
-            throw FormatError.InvalidHeader("HeaderHash value does not match Sha256 of the header.")
+            // The terminal plaintext block does not end the enclosing cipher.
+            // Consume its remaining bytes and validate padding before closing it.
+            decryptedSource.drainAndVerify()
         }
     }
 }
