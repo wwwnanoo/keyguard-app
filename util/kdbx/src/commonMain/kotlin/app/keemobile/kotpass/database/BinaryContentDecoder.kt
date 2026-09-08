@@ -91,12 +91,13 @@ private fun KeePassDatabase.Companion.visitBinaryContentsSource(
     checkCancellation: () -> Unit,
 ) {
     val headerBuffer = Buffer()
-    val source = input.teeBufferStream(headerBuffer)
+    val headerSource = input.teeBufferStream(headerBuffer)
     try {
-        val header = DatabaseHeader.readFrom(source)
+        val header = DatabaseHeader.readFrom(headerSource)
         validateHeader(header)
 
         val rawHeaderData = headerBuffer.snapshot()
+        val source = headerSource.finishCapture()
         val transformedKey = KeyTransform.transformedKey(kdfProvider, header, credentials)
         val cipher = resolveCipher(header, cipherProviders)
         val masterSeed = header.masterSeed.toByteArray()
@@ -137,7 +138,7 @@ private fun KeePassDatabase.Companion.visitBinaryContentsSource(
     } catch (error: Exception) {
         throw error.toBinaryInspectError()
     } finally {
-        source.close()
+        headerSource.close()
     }
 }
 
