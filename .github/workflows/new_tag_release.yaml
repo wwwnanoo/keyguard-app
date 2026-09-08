@@ -334,9 +334,18 @@ jobs:
           path: |
             desktopApp/build/distributions/*.tar.gz
       - name: "Move binaries into the template directory"
+        id: linux-package
+        shell: bash
+        env:
+          LINUX_ARCH: ${{ matrix.arch }}
         run: |
-          mkdir -p desktopApp/flatpak/app-${{ matrix.arch }}/
-          tar -xvzf $(find . -type f -regex '\./desktopApp/build/distributions/.*\.tar.gz') -C desktopApp/flatpak/app-${{ matrix.arch }}/ --strip-components=1
+          set -euo pipefail
+          shopt -s nullglob
+          tarballs=(desktopApp/build/distributions/*-linux-"$LINUX_ARCH".tar.gz)
+          test "${#tarballs[@]}" -eq 1
+          echo "tarball=${tarballs[0]}" >> "$GITHUB_OUTPUT"
+          mkdir -p "desktopApp/flatpak/app-$LINUX_ARCH"
+          tar -xzf "${tarballs[0]}" -C "desktopApp/flatpak/app-$LINUX_ARCH" --strip-components=1
       - name: "Inspect packaged native crypto"
         shell: bash
         run: |
@@ -348,6 +357,19 @@ jobs:
         run: >-
           python3 scripts/run_native_crypto_desktop_package_smoke.py
           desktopApp/flatpak/app-${{ matrix.arch }}
+      - name: "Build and verify AppImage"
+        id: appimage
+        uses: ./.github/actions/build_appimage
+        with:
+          tarball: ${{ steps.linux-package.outputs.tarball }}
+          arch: ${{ matrix.arch }}
+          version: ${{ needs.generate-versions.outputs.version-semantic }}
+      - name: "Upload .AppImage"
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: app-linux-appimage-${{ matrix.arch }}
+          path: ${{ steps.appimage.outputs.path }}
+          if-no-files-found: error
       - name: "Get Flatpak runtime version -install dependencies"
         run: pip install -r .github/get_flatpak_runtime_version.requirements.txt
       - name: "Get Flatpak runtime version"
@@ -698,6 +720,16 @@ jobs:
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           name: app-linux-flatpak-aarch64
+          path: artifacts
+      - name: "Download Linux AppImage (x86_64)"
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: app-linux-appimage-x86_64
+          path: artifacts
+      - name: "Download Linux AppImage (aarch64)"
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: app-linux-appimage-aarch64
           path: artifacts
       - name: "Download Windows app"
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c

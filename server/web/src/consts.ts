@@ -68,12 +68,12 @@ export const PLATFORMS: DownloadPlatform[] = [
   },
   {
     name: 'Linux',
-    note: 'Flatpak & Arch',
+    note: 'Flatpak, AppImage & Arch',
     stores: [
       { label: 'Flathub', href: 'https://flathub.org/apps/com.artemchep.keyguard' },
     ],
     commands: [{ label: 'Arch Linux (AUR)', code: 'yay -S keyguard-bin' }],
-    direct: { label: 'Flatpak', href: RELEASES_URL },
+    direct: { label: 'Flatpak & AppImage', href: RELEASES_URL },
   },
   {
     name: 'macOS',

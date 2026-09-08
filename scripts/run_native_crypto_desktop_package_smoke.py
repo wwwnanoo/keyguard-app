@@ -95,8 +95,10 @@ def await_smoke_evidence(result_path: Path, nonce: str) -> str:
     raise RuntimeError("Packaged nativeCrypto smoke did not publish result evidence")
 
 
-def run_smoke(root: Path, target_platform: str) -> None:
-    launcher = find_launcher(root, target_platform)
+def run_smoke(root: Path, target_platform: str, launcher: Path | None = None) -> None:
+    launcher = launcher.resolve() if launcher is not None else find_launcher(root, target_platform)
+    if not launcher.is_file():
+        raise RuntimeError(f"Packaged Desktop launcher is missing: {launcher}")
     with tempfile.TemporaryDirectory(prefix="keyguard-native-crypto-smoke-") as directory:
         result_path = Path(directory, "result.txt")
         nonce = secrets.token_hex(32)
@@ -125,13 +127,18 @@ def main() -> int:
     )
     parser.add_argument("package_root", type=Path)
     parser.add_argument(
+        "--launcher",
+        type=Path,
+        help="Run this launcher (for example, an AppImage) instead of discovering one in package_root.",
+    )
+    parser.add_argument(
         "--platform",
         choices=("auto", "linux", "macos", "windows"),
         default="auto",
     )
     args = parser.parse_args()
 
-    run_smoke(args.package_root.resolve(), platform_name(args.platform))
+    run_smoke(args.package_root.resolve(), platform_name(args.platform), args.launcher)
     return 0
 
 
