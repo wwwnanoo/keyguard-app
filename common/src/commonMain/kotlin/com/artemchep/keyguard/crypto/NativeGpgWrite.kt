@@ -611,9 +611,15 @@ class NativeGpgOpenPgpService internal constructor(
                                     privateKeys = privateKeys,
                                     verificationPublicKeys = publicKeys,
                                     allowSignedOnly = request.allowSignedOnly,
+                                    stagingDirectory = privateTemporaryStorageDirectory().value,
                                 ).use { session ->
                                     input.consumeWithErasedBuffer { data, length ->
                                         writeAndErase(stagedOutput, session.update(data, length = length))
+                                    }
+                                    while (true) {
+                                        val chunk = session.drain()
+                                        if (chunk.isEmpty()) break
+                                        writeAndErase(stagedOutput, chunk)
                                     }
                                     val final = session.finish()
                                     writeAndErase(stagedOutput, final.data)

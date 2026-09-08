@@ -1004,6 +1004,30 @@ class NativeCryptoClientTest {
     }
 
     @Test
+    fun openPgpDecryptionDrainsWithoutConsumingHandle() {
+        val bridge = FakeBridge(
+            streamOpenResponse = response(UInt64ResultProto(42L)),
+            callResponse = response(BytesResultProto(byteArrayOf(5, 6))),
+            streamFinishResponse = response(BytesResultProto(byteArrayOf(7))),
+        )
+        val session = NativeCryptoClient(bridge).openPgpDecryption(
+            privateKeys = listOf(byteArrayOf(1)),
+            verificationPublicKeys = emptyList(),
+            referenceTimeEpochSeconds = null,
+            allowSignedOnly = false,
+        )
+        assertContentEquals(byteArrayOf(5, 6), session.drain())
+        assertContentEquals(byteArrayOf(5, 6), session.drain())
+        assertEquals(0, bridge.streamFinishCalls)
+        assertContentEquals(byteArrayOf(7), session.finish())
+        assertEquals(1, bridge.streamCloseCalls)
+        assertEquals(
+            NativeCryptoErrorCode.INVALID_SESSION,
+            assertFailsWith<NativeCryptoException> { session.drain() }.code,
+        )
+    }
+
+    @Test
     fun openPgpWriteStreamConsumesHandleAndCarriesTypedFinalPayload() {
         val finalPayload = ProtoBuf.encodeToByteArray(
             OpenPgpEncryptFinalProto(
@@ -1302,7 +1326,7 @@ class NativeCryptoClientTest {
                 ProtoBuf.decodeFromByteArray<NativeRequestProto>(encoded).operation::class,
             )
         }
-        assertEquals(0x3_FFFF_FFFFL, allNativeCryptoCapabilitiesMask)
+        assertEquals(0x7_FFFF_FFFFL, allNativeCryptoCapabilitiesMask)
     }
 
     private fun openPgpProtocolExtensions(): List<
@@ -1365,6 +1389,11 @@ class NativeCryptoClientTest {
                     ),
                 ),
                 58,
+            ),
+            Triple(
+                NativeCryptoCapability.OPENPGP_STREAM_DRAIN,
+                OpenPgpStreamDrainOperationProto(OpenPgpStreamDrainRequestProto(42L)),
+                59,
             ),
         )
 
