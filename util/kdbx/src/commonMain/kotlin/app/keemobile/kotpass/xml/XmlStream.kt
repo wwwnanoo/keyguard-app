@@ -87,6 +87,8 @@ private class LimitedXmlReader(
     override fun next(): EventType {
         val event = delegate.next()
         when (event) {
+            EventType.START_DOCUMENT -> input.isXml11 = delegate.version == "1.1"
+
             EventType.DOCDECL ->
                 throw FormatError.InvalidXml("Document type declarations are not allowed.")
 
@@ -120,6 +122,17 @@ private class LimitedXmlReader(
             }
 
             else -> Unit
+        }
+        return event
+    }
+
+    override fun nextTag(): EventType {
+        var event = next()
+        while (event.isIgnorable || (event == EventType.TEXT && isWhitespace())) {
+            event = next()
+        }
+        if (event != EventType.START_ELEMENT && event != EventType.END_ELEMENT) {
+            throw FormatError.InvalidXml("Expected an XML start or end element, got $event.")
         }
         return event
     }
