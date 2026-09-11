@@ -66,14 +66,40 @@ class BinaryIdentityTest {
     }
 
     @Test
-    fun identityDoesNotDecompressOrChangeMemoryProtection() {
+    fun identityIncludesMemoryProtectionWithoutDecompressing() {
         val invalidGzip = byteArrayOf(1, 2, 3)
         val compressed = BinaryData.Compressed(true, invalidGzip)
         val unprotected = BinaryData.Compressed(false, invalidGzip)
 
         assertEquals(true, compressed.memoryProtection)
-        assertEquals(compressed.hash, unprotected.hash)
+        assertNotEquals(compressed.hash, unprotected.hash)
         assertEquals(32, compressed.hash.size)
         assertFailsWith<FormatError.FailedCompression> { compressed.getContent() }
+    }
+
+    @Test
+    fun preservesProtectionVariantsInEitherInsertionOrder() {
+        for (compressed in listOf(false, true)) {
+            for (protectedFirst in listOf(false, true)) {
+                val values = listOf(protectedFirst, !protectedFirst).map { protected ->
+                    if (compressed) {
+                        BinaryData.Compressed(protected, byteArrayOf(1, 2, 3))
+                    } else {
+                        BinaryData.Uncompressed(protected, byteArrayOf(1, 2, 3))
+                    }
+                }
+                val pool = BinaryPool().apply {
+                    values.forEachIndexed { ref, binary -> add(ref, binary) }
+                    values.forEachIndexed { ref, binary -> add(ref + 2, binary) }
+                }
+                assertEquals(2, pool.size)
+                val index = BinaryIndex(pool)
+                values.forEachIndexed { ref, binary ->
+                    assertEquals(binary.memoryProtection, index.getByRef(ref)?.data?.memoryProtection)
+                    assertEquals(pool.hashesByRef[ref], pool.hashesByRef[ref + 2])
+                }
+                assertNotEquals(pool.hashesByRef[0], pool.hashesByRef[1])
+            }
+        }
     }
 }

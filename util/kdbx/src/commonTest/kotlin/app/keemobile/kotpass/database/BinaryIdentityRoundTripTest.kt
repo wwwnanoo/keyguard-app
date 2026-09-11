@@ -16,6 +16,7 @@ import okio.ByteString.Companion.toByteString
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 
 class BinaryIdentityRoundTripTest {
@@ -29,6 +30,89 @@ class BinaryIdentityRoundTripTest {
         "text.txt" to text,
         "raw.gz" to gzip.toByteArray(),
     )
+
+    @Test
+    fun preservesMixedProtectionInKdbxAndContentsInPlainXmlRoundTrips() {
+        for (protectedFirst in listOf(false, true)) {
+            for (inline in listOf(false, true)) {
+                for (compressed in listOf(false, true)) {
+                    val flags = listOf(protectedFirst, !protectedFirst)
+                    val payload = if (compressed) gzip else text.toByteString()
+                    val pool = flags.mapIndexed { id, protected ->
+                        """<Binary ID="$id" ProtectInMemory="$protected" Compressed="$compressed">${payload.base64()}</Binary>"""
+                    }.joinToString("")
+                    val references = flags.mapIndexed { id, protected ->
+                        val value = if (inline) {
+                            """<Value ProtectInMemory="$protected" Compressed="$compressed">${payload.base64()}</Value>"""
+                        } else {
+                            """<Value Ref="$id"/>"""
+                        }
+                        """<Binary><Key>$protected</Key>$value</Binary>"""
+                    }.joinToString("")
+                    val xml = """
+                        <KeePassFile>
+                            <Meta><Binaries>${if (inline) "" else pool}</Binaries></Meta>
+                            <Root><Group><UUID>AAAAAAAAAAAAAAAAAAAAAA==</UUID>
+                                <Entry><UUID>AQAAAAAAAAAAAAAAAAAAAA==</UUID>$references</Entry>
+                            </Group></Root>
+                        </KeePassFile>
+                    """.trimIndent()
+                    val loaded = KeePassDatabase.decodeFromXml(xml.encodeToByteArray(), credentials)
+                    assertMixedProtection(loaded)
+                    val fromXml = KeePassDatabase.decodeFromXml(
+                        loaded.encodeAsXml().encodeToByteArray(),
+                        credentials,
+                    )
+                    // Plain XML preserves attachment bytes and references, but
+                    // cannot portably preserve binary memory-protection flags.
+                    assertEquals(1, fromXml.binaries.size)
+                    val exportedReferences = fromXml.content.group.entries.single().binaries
+                    assertEquals(setOf("true", "false"), exportedReferences.map { it.name }.toSet())
+                    assertEquals(2, exportedReferences.size)
+                    for (reference in exportedReferences) {
+                        val binary = fromXml.binaries.getValue(reference.hash)
+                        assertFalse(binary.memoryProtection)
+                        assertContentEquals(text, binary.getContent())
+                    }
+                    assertMixedProtection(loaded)
+                    val v3 = KeePassDatabase.Ver3x.create("Root", Meta(), credentials).let { base ->
+                        base.copy(
+                            header = base.header.copy(transformRounds = 1U),
+                            content = loaded.content.copy(
+                                meta = loaded.content.meta.copy(binaries = loaded.binaries),
+                            ),
+                        )
+                    }
+                    val v4 = assertIs<KeePassDatabase.Ver4x>(loaded).let { base ->
+                        base.copy(
+                            header = base.header.copy(
+                                kdfParameters = KdfParameters.Aes(
+                                    rounds = 1U,
+                                    seed = ByteArray(32) { it.toByte() }.toByteString(),
+                                ),
+                            ),
+                        )
+                    }
+                    for (database in listOf(v3, v4)) {
+                        val reopened = KeePassDatabase.decode(database.encode(), credentials)
+                        assertMixedProtection(reopened)
+                        assertMixedProtection(KeePassDatabase.decode(reopened.encode(), credentials))
+                    }
+                }
+            }
+        }
+    }
+
+    private fun assertMixedProtection(database: KeePassDatabase) {
+        assertEquals(2, database.binaries.size)
+        val references = database.content.group.entries.single().binaries
+        assertEquals(setOf("true", "false"), references.map { it.name }.toSet())
+        for (reference in references) {
+            val binary = database.binaries.getValue(reference.hash)
+            assertEquals(reference.name.toBooleanStrict(), binary.memoryProtection)
+            assertContentEquals(text, binary.getContent())
+        }
+    }
 
     @Test
     fun preservesSparsePooledReferencesAndHistoryThroughXmlRoundTrip() {

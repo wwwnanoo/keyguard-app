@@ -38,7 +38,8 @@ class BinariesSpec {
     describe("Binaries") {
         it("Binary serialization does not affect compression") {
             val binary = BinaryData.Uncompressed(false, Contents.toByteArray())
-            renderTestXmlString { binary.marshalTo(0, it) }
+            val context = XmlContext.Encode.Plain(FormatVersion(3, 1), emptyMap(), emptySet())
+            renderTestXmlString { binary.marshalTo(0, context, it) }
                 .parseAsXmlReader()
                 .readElementTextOrNull() shouldBe Contents.toByteArray().encodeBase64()
         }
