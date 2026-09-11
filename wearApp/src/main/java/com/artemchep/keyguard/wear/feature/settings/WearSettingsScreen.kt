@@ -23,6 +23,7 @@ import com.artemchep.keyguard.feature.navigation.LocalNavigationController
 import com.artemchep.keyguard.feature.navigation.NavigationIntent
 import com.artemchep.keyguard.feature.navigation.Route
 import com.artemchep.keyguard.feature.navigation.registerRouteResultReceiver
+import com.artemchep.keyguard.feature.permissions.rememberLocalNetworkPermissionHint
 import com.artemchep.keyguard.platform.util.isRelease
 import com.artemchep.keyguard.res.Res
 import com.artemchep.keyguard.res.settings_main_header_title
@@ -80,9 +81,21 @@ fun WearSettingsScreen() {
     )
 
     val navigationController by rememberUpdatedState(LocalNavigationController.current)
+    val localNetworkPermission = rememberLocalNetworkPermissionHint()
     WearScaffoldScreen(
         title = stringResource(Res.string.settings_main_header_title),
     ) { transformationSpec ->
+        localNetworkPermission?.let { permission ->
+            item("local_network_permission") {
+                WearLocalNetworkPermissionAction(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .transformedHeight(this, transformationSpec),
+                    permission = permission,
+                    transformation = SurfaceTransformation(transformationSpec),
+                )
+            }
+        }
         items(
             items = items,
             key = { it.id },

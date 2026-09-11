@@ -11,15 +11,33 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.lifecycle.lifecycleScope
 import androidx.wear.compose.material3.MaterialTheme
+import com.artemchep.keyguard.copy.PermissionServiceAndroid
 import com.artemchep.keyguard.ui.surface.LocalSurfaceColor
 import com.artemchep.keyguard.wear.ui.WearKeyguardTheme
 import org.kodein.di.DIAware
 import org.kodein.di.android.closestDI
 import org.kodein.di.compose.withDI
+import org.kodein.di.instance
 import kotlin.getValue
 
 class WearActivity : ComponentActivity(), DIAware {
     override val di by closestDI()
+
+    private val permissionService: PermissionServiceAndroid by instance()
+
+    override fun onResume() {
+        super.onResume()
+        permissionService.refresh()
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<String>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        permissionService.refresh()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

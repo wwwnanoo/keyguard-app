@@ -9,12 +9,14 @@ import com.artemchep.keyguard.common.usecase.GetAccountStatus
 import com.artemchep.keyguard.common.usecase.GetAccounts
 import com.artemchep.keyguard.common.usecase.GetCiphers
 import com.artemchep.keyguard.common.usecase.GetFolders
+import com.artemchep.keyguard.common.usecase.GetLocalNetworkAccessHint
 import com.artemchep.keyguard.common.usecase.GetMetas
 import com.artemchep.keyguard.common.usecase.GetSends
-import com.artemchep.keyguard.common.util.flow.combineToList
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import org.kodein.di.DirectDI
 import org.kodein.di.instance
@@ -26,11 +28,8 @@ class GetAccountStatusImpl(
     private val getCiphers: GetCiphers,
     private val getFolders: GetFolders,
     private val getSends: GetSends,
+    private val getLocalNetworkAccessHint: GetLocalNetworkAccessHint,
 ) : GetAccountStatus {
-    private val importantPermissions = listOf(
-        Permission.POST_NOTIFICATIONS,
-    )
-
     constructor(directDI: DirectDI) : this(
         permissionService = directDI.instance(),
         getAccounts = directDI.instance(),
@@ -38,6 +37,7 @@ class GetAccountStatusImpl(
         getCiphers = directDI.instance(),
         getFolders = directDI.instance(),
         getSends = directDI.instance(),
+        getLocalNetworkAccessHint = directDI.instance(),
     )
 
     override fun invoke(): Flow<DAccountStatus> {
@@ -82,16 +82,31 @@ class GetAccountStatusImpl(
             combine(c, f, s) { a, b, s -> a + b + s }
         }
 
-        val pendingPermissionsFlow = importantPermissions
-            .map { permission ->
-                permissionService
-                    .getState(permission)
+        val pendingPermissionsFlow = combine(
+            permissionService
+                .getState(Permission.POST_NOTIFICATIONS)
+                .map { notificationPermissionState ->
+                    notificationPermissionState as? PermissionState.Declined
+                },
+            permissionService
+                .getState(Permission.LOCAL_NETWORK)
+                .flatMapLatest { localNetworkPermissionState ->
+                    if (localNetworkPermissionState is PermissionState.Declined) {
+                        return@flatMapLatest getLocalNetworkAccessHint()
+                            .map { showHint ->
+                                localNetworkPermissionState
+                                    .takeIf { showHint }
+                            }
+                    }
+
+                    flowOf(null)
+                },
+        ) { notificationsPermission, localNetworkPermissions ->
+            buildList {
+                localNetworkPermissions?.let(::add)
+                notificationsPermission?.let(::add)
             }
-            .combineToList()
-            .map { permissionStates ->
-                permissionStates
-                    .filterIsInstance<PermissionState.Declined>()
-            }
+        }
         return combine(
             lastSyncTimestampFlow,
             hasFailureFlow,

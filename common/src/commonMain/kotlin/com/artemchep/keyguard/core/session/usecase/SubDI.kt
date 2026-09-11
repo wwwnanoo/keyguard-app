@@ -153,6 +153,7 @@ import com.artemchep.keyguard.common.usecase.GetHibpApiToken
 import com.artemchep.keyguard.common.usecase.GetClaimedLicenseEntitlement
 import com.artemchep.keyguard.common.usecase.GetLicenseEntitlement
 import com.artemchep.keyguard.common.usecase.GetLicensePremium
+import com.artemchep.keyguard.common.usecase.GetLocalNetworkAccessHint
 import com.artemchep.keyguard.common.usecase.GetMetas
 import com.artemchep.keyguard.common.usecase.GetNavItemsConfig
 import com.artemchep.keyguard.common.usecase.GetOrganizations
@@ -247,6 +248,7 @@ import com.artemchep.keyguard.common.usecase.impl.GetHibpApiTokenImpl
 import com.artemchep.keyguard.common.usecase.impl.GetClaimedLicenseEntitlementImpl
 import com.artemchep.keyguard.common.usecase.impl.GetLicenseEntitlementImpl
 import com.artemchep.keyguard.common.usecase.impl.GetLicensePremiumImpl
+import com.artemchep.keyguard.common.usecase.impl.GetLocalNetworkAccessHintImpl
 import com.artemchep.keyguard.common.usecase.impl.GetNavItemsConfigImpl
 import com.artemchep.keyguard.common.usecase.impl.GetShouldRequestAppReviewImpl
 import com.artemchep.keyguard.common.usecase.impl.GetVaultSearchIndexImpl
@@ -621,6 +623,9 @@ fun DI.Builder.createSubDi2(
     }
     bindSingleton<GetAccountStatus> {
         GetAccountStatusImpl(this)
+    }
+    bindSingleton<GetLocalNetworkAccessHint> {
+        GetLocalNetworkAccessHintImpl(this)
     }
     bindSingleton<GetAccountsHasError> {
         GetAccountsHasErrorImpl(this)

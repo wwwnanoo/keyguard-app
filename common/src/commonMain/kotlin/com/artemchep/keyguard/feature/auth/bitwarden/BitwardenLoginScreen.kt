@@ -55,6 +55,8 @@ import com.artemchep.keyguard.feature.navigation.NavigationIcon
 import com.artemchep.keyguard.feature.navigation.NavigationIntent
 import com.artemchep.keyguard.feature.navigation.RouteResultTransmitter
 import com.artemchep.keyguard.feature.navigation.registerRouteResultReceiver
+import com.artemchep.keyguard.feature.permissions.LocalNetworkPermissionNote
+import com.artemchep.keyguard.feature.permissions.rememberLocalNetworkPermission
 import com.artemchep.keyguard.platform.CurrentPlatform
 import com.artemchep.keyguard.platform.util.hasWatch
 import com.artemchep.keyguard.res.Res
@@ -276,6 +278,7 @@ fun LoginScaffold(
 fun ColumnScope.LoginContent(
     loginState: LoginState,
 ) {
+    val localNetworkPermission = rememberLocalNetworkPermission()
     var isEnvironmentVisible by rememberSaveable {
         mutableStateOf(false)
     }
@@ -326,6 +329,15 @@ fun ColumnScope.LoginContent(
             tab.onClick?.invoke()
         },
     )
+    if (loginState.showCustomEnv) {
+        localNetworkPermission?.let {
+            Spacer(
+                modifier = Modifier
+                    .height(16.dp),
+            )
+            LocalNetworkPermissionNote(permission = it)
+        }
+    }
     Spacer(Modifier.height(16.dp))
     EmailFlatTextField(
         modifier = Modifier

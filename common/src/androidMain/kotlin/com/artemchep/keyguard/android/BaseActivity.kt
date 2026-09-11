@@ -544,6 +544,11 @@ abstract class BaseActivity : AppCompatActivity(), DIAware {
     @Composable
     protected abstract fun Content()
 
+    override fun onResume() {
+        super.onResume()
+        permissionService.refresh()
+    }
+
     override fun onRequestPermissionsResult(
         requestCode: Int,
         permissions: Array<out String>,

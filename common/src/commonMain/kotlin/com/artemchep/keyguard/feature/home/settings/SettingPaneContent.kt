@@ -83,6 +83,7 @@ import com.artemchep.keyguard.feature.home.settings.component.settingNavigationI
 import com.artemchep.keyguard.feature.home.settings.component.settingOpenSourceLicensesProvider
 import com.artemchep.keyguard.feature.home.settings.component.settingPermissionCameraProvider
 import com.artemchep.keyguard.feature.home.settings.component.settingPermissionDetailsProvider
+import com.artemchep.keyguard.feature.home.settings.component.settingPermissionLocalNetworkProvider
 import com.artemchep.keyguard.feature.home.settings.component.settingPermissionOtherProvider
 import com.artemchep.keyguard.feature.home.settings.component.settingPermissionPostNotificationsProvider
 import com.artemchep.keyguard.feature.home.settings.component.settingPermissionWriteExternalStorageProvider
@@ -181,6 +182,7 @@ object Setting {
     const val PERMISSION_DETAILS = "permission_details" // screen
     const val PERMISSION_OTHER = "permission_other"
     const val PERMISSION_CAMERA = "permission_camera"
+    const val PERMISSION_LOCAL_NETWORK = "permission_local_network"
     const val PERMISSION_WRITE_EXTERNAL_STORAGE = "permission_write_external_storage"
     const val PERMISSION_POST_NOTIFICATION = "permission_post_notification"
     const val BIOMETRIC = "biometric"
@@ -311,6 +313,7 @@ val hub = mapOf<String, (DirectDI) -> SettingComponent>(
     Setting.PERMISSION_DETAILS to ::settingPermissionDetailsProvider,
     Setting.PERMISSION_OTHER to ::settingPermissionOtherProvider,
     Setting.PERMISSION_CAMERA to ::settingPermissionCameraProvider,
+    Setting.PERMISSION_LOCAL_NETWORK to ::settingPermissionLocalNetworkProvider,
     Setting.PERMISSION_POST_NOTIFICATION to ::settingPermissionPostNotificationsProvider,
     Setting.PERMISSION_WRITE_EXTERNAL_STORAGE to ::settingPermissionWriteExternalStorageProvider,
     Setting.BIOMETRIC to ::settingBiometricsProvider,

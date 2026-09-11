@@ -87,6 +87,7 @@ import com.artemchep.keyguard.common.model.AllowScreenshots
 import com.artemchep.keyguard.common.model.DAccountStatus
 import com.artemchep.keyguard.common.service.deeplink.DeeplinkService
 import com.artemchep.keyguard.common.service.filter.GetCipherFilters
+import com.artemchep.keyguard.common.service.permission.Permission
 import com.artemchep.keyguard.common.usecase.GetAccountStatus
 import com.artemchep.keyguard.common.usecase.GetAllowScreenshots
 import com.artemchep.keyguard.common.usecase.GetNavItemsConfig
@@ -145,6 +146,7 @@ import kotlinx.collections.immutable.toPersistentList
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import org.jetbrains.compose.resources.StringResource
 import org.kodein.di.compose.rememberInstance
 
 private const val ROUTE_NAME = "home"
@@ -670,16 +672,17 @@ private fun BannerStatusBadge(
                 }
 
                 statusState.value.pendingPermissions
-                    .isNotEmpty() -> {
+                    .any { it.permission != Permission.LOCAL_NETWORK } -> {
+                    val permission = statusState.value.pendingPermissions
+                        .first { it.permission != Permission.LOCAL_NETWORK }
+                    val presentation = permission.permission.homePresentation()
                     BannerStatusBadgeContentModel(
                         count = 0,
-                        title = TextHolder.Res(Res.string.post_notifications_permission_banner_title),
-                        text = TextHolder.Res(Res.string.post_notifications_permission_banner_text),
+                        title = TextHolder.Res(presentation.title),
+                        text = TextHolder.Res(presentation.text),
                         error = false,
                         onClick = {
-                            val permission = statusState.value.pendingPermissions
-                                .firstOrNull()
-                            permission?.ask?.invoke(updatedContext)
+                            permission.ask(updatedContext)
                         },
                     )
                 }
@@ -692,9 +695,7 @@ private fun BannerStatusBadge(
         modifier = modifier,
         valueOrNull = errorState.value,
     ) { currentErrorState ->
-        BannerStatusBadgeContent(
-            state = currentErrorState,
-        )
+        BannerStatusBadgeContent(state = currentErrorState)
     }
 }
 
@@ -812,7 +813,12 @@ private fun RailStatusBadge(
                     status.pendingPermissions.isNotEmpty() -> {
                         val permission = status.pendingPermissions
                             .firstOrNull()
-                        permission?.ask?.invoke(updatedContext)
+                        if (permission?.permission == Permission.LOCAL_NETWORK) {
+                            // The sync page also offers settings recovery after denial.
+                            navigateSyncStatus(updatedNavController)
+                        } else {
+                            permission?.ask?.invoke(updatedContext)
+                        }
                     }
 
                     else -> {
@@ -858,6 +864,7 @@ private fun RailStatusBadge(
             }
 
             status.pendingPermissions.isNotEmpty() -> {
+                val permission = status.pendingPermissions.first()
                 RailStatusBadgeContent(
                     contentColor = MaterialTheme.colorScheme.info,
                     icon = {
@@ -866,7 +873,7 @@ private fun RailStatusBadge(
                             contentDescription = null,
                         )
                     },
-                    text = "Pending permissions",
+                    text = stringResource(permission.permission.homePresentation().title),
                 )
             }
 
@@ -887,6 +894,28 @@ private fun RailStatusBadge(
             }
         }
     }
+}
+
+private data class HomePermissionPresentation(
+    val title: StringResource,
+    val text: StringResource,
+)
+
+private fun Permission.homePresentation(): HomePermissionPresentation = when (this) {
+    Permission.POST_NOTIFICATIONS -> HomePermissionPresentation(
+        title = Res.string.post_notifications_permission_banner_title,
+        text = Res.string.post_notifications_permission_banner_text,
+    )
+
+    Permission.LOCAL_NETWORK -> HomePermissionPresentation(
+        title = Res.string.local_network_permission_banner_title,
+        text = Res.string.local_network_permission_banner_text,
+    )
+
+    else -> HomePermissionPresentation(
+        title = Res.string.pref_item_permission_write_external_storage_grant,
+        text = Res.string.pref_item_permission_write_external_storage_text,
+    )
 }
 
 @Composable

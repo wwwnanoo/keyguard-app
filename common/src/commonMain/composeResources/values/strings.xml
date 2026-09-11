@@ -808,6 +808,10 @@
     <string name="post_notifications_permission_banner_title">Notifications are disabled</string>
     <string name="post_notifications_permission_banner_text">Grant the notification permission to allow Keyguard to show one-time passwords when autofilling &amp; more.</string>
 
+    <string name="local_network_permission_banner_title">Allow local network access</string>
+    <string name="local_network_permission_banner_text">If your server is on your local network, allow access and retry the connection.</string>
+    <string name="local_network_permission_open_settings_action">Open app settings</string>
+
     <!-- Title of the 'Show as Barcode' dialog -->
     <string name="barcodetype_title">Barcode</string>
     <string name="barcodetype_action_show_in_barcode_title">Show as Barcode</string>
@@ -1886,6 +1890,8 @@
     <string name="pref_item_permission_write_external_storage_grant">Grant write external storage permission</string>
     <string name="pref_item_permission_camera_title">Camera</string>
     <string name="pref_item_permission_camera_text">Used to scan QR codes</string>
+    <string name="pref_item_permission_local_network_title">Local network</string>
+    <string name="pref_item_permission_local_network_text">Used to connect to self-hosted Bitwarden, WebDAV, and SFTP servers on your local network</string>
     <string name="pref_item_allow_two_panel_layout_in_landscape_title">Allow two panel layout in landscape mode</string>
     <string name="pref_item_allow_two_panel_layout_in_portrait_title">Allow two panel layout in portrait mode</string>
     <string name="pref_item_gpg_agent_title">GPG agent</string>
