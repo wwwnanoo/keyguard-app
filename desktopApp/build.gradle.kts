@@ -33,7 +33,13 @@ kotlin {
                 implementation(project.dependencies.platform(libs.squareup.okhttp.bom))
                 implementation(libs.squareup.okhttp)
                 implementation(project(":util:crypto"))
+                implementation(project(":util:instance"))
                 implementation(project(":common"))
+            }
+        }
+        val jvmTest by getting {
+            dependencies {
+                implementation(kotlin("test"))
             }
         }
     }
@@ -53,6 +59,15 @@ val bundledAppResources by configurations.creating {
 }
 
 dependencies {
+    add(
+        bundledAppResources.name,
+        project(
+            mapOf(
+                "path" to ":util:instance",
+                "configuration" to "bundledAppResourcesElements",
+            ),
+        ),
+    )
     add(
         bundledAppResources.name,
         project(

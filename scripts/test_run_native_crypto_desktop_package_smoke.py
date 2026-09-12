@@ -13,6 +13,7 @@ from scripts.run_native_crypto_desktop_package_smoke import (
     RESULT_PATH_ENV,
     SUCCESS_PREFIX,
     TLS_SUCCESS_MARKER,
+    INSTANCE_SUCCESS_MARKER,
     find_launcher,
     run_smoke,
     validate_smoke_evidence,
@@ -46,7 +47,7 @@ class DesktopPackageSmokeTest(unittest.TestCase):
                 find_launcher(Path(tmp), "linux")
 
     def test_requires_nonce_and_completion_markers(self) -> None:
-        evidence = f"nonce\n{SUCCESS_PREFIX} abi=1 sha256=PASS {TLS_SUCCESS_MARKER}\n"
+        evidence = f"nonce\n{SUCCESS_PREFIX} abi=1 sha256=PASS {TLS_SUCCESS_MARKER} {INSTANCE_SUCCESS_MARKER}\n"
         self.assertIn(SUCCESS_PREFIX, validate_smoke_evidence(evidence, "nonce"))
 
         with self.assertRaisesRegex(RuntimeError, "wrong nonce"):
@@ -54,6 +55,13 @@ class DesktopPackageSmokeTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, TLS_SUCCESS_MARKER):
             validate_smoke_evidence(
                 f"nonce\n{SUCCESS_PREFIX} abi=1 sha256=PASS\n",
+                "nonce",
+            )
+
+    def test_requires_instance_service_evidence(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, INSTANCE_SUCCESS_MARKER):
+            validate_smoke_evidence(
+                f"nonce\n{SUCCESS_PREFIX} abi=1 sha256=PASS {TLS_SUCCESS_MARKER}\n",
                 "nonce",
             )
 
@@ -71,7 +79,7 @@ class DesktopPackageSmokeTest(unittest.TestCase):
                 environment = kwargs["env"]
                 Path(environment[RESULT_PATH_ENV]).write_text(
                     f"{environment[RESULT_NONCE_ENV]}\n"
-                    f"{SUCCESS_PREFIX} abi=1 sha256=PASS {TLS_SUCCESS_MARKER}\n",
+                    f"{SUCCESS_PREFIX} abi=1 sha256=PASS {TLS_SUCCESS_MARKER} {INSTANCE_SUCCESS_MARKER}\n",
                     encoding="utf-8",
                 )
                 return SimpleNamespace(returncode=0, stderr="", stdout="")

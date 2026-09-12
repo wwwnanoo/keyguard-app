@@ -40,10 +40,9 @@ jobs:
         uses: ./.github/actions/setup_rust
         with:
           targets: "aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android"
-      - name: "Prefetch locked native graphs"
-        run: |
-          cargo fetch --manifest-path util/crypto/rust/Cargo.toml --locked
-          cargo fetch --manifest-path util/zxcvbn/rust/Cargo.toml --locked
+      - uses: ./.github/actions/prefetch_native
+        with:
+          profile: android
       - uses: ./.github/actions/setup_python
       - uses: ./.github/actions/prepare_disk_space
       - name: "Prepare env"
@@ -96,10 +95,9 @@ jobs:
         uses: ./.github/actions/setup_rust
         with:
           targets: "aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android"
-      - name: "Prefetch locked native graphs"
-        run: |
-          cargo fetch --manifest-path util/crypto/rust/Cargo.toml --locked
-          cargo fetch --manifest-path util/zxcvbn/rust/Cargo.toml --locked
+      - uses: ./.github/actions/prefetch_native
+        with:
+          profile: android
       - uses: ./.github/actions/setup_python
       - uses: ./.github/actions/prepare_disk_space
       - name: "Prepare env"

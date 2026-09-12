@@ -17,6 +17,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.platform.LocalDensity
@@ -35,48 +36,47 @@ import com.artemchep.keyguard.common.di.imageLoaderModule
 import com.artemchep.keyguard.common.di.setFromDi
 import com.artemchep.keyguard.common.io.attempt
 import com.artemchep.keyguard.common.io.bind
+import com.artemchep.keyguard.common.model.AgentStatus
 import com.artemchep.keyguard.common.model.MasterSession
 import com.artemchep.keyguard.common.model.PersistedSession
 import com.artemchep.keyguard.common.model.ToastMessage
 import com.artemchep.keyguard.common.service.app.AppIconFetcher
 import com.artemchep.keyguard.common.service.app.AppIconKeyer
 import com.artemchep.keyguard.common.service.autotype.AutotypeService
+import com.artemchep.keyguard.common.service.clipboard.ClipboardEventBus
+import com.artemchep.keyguard.common.service.clipboard.ClipboardService
 import com.artemchep.keyguard.common.service.crypto.CryptoGenerator
+import com.artemchep.keyguard.common.service.gpgagent.GpgAgentManager
+import com.artemchep.keyguard.common.service.gpgagent.GpgAgentStatusService
+import com.artemchep.keyguard.common.service.gpgagent.GpgPublicKeyRepository
+import com.artemchep.keyguard.common.service.gpgagent.retryGpgAgentStartup
 import com.artemchep.keyguard.common.service.keyboard.KeyboardShortcutsService
 import com.artemchep.keyguard.common.service.keychain.KeychainRepository
 import com.artemchep.keyguard.common.service.logging.LogRepository
 import com.artemchep.keyguard.common.service.notification.NotificationRepository
+import com.artemchep.keyguard.common.service.pendinghistory.PendingUsageHistoryQueue
 import com.artemchep.keyguard.common.service.quicksearch.DesktopLibGlobalHotKeyRegistrar
 import com.artemchep.keyguard.common.service.quicksearch.QuickSearchHotkeyService
 import com.artemchep.keyguard.common.service.quicksearch.QuickSearchWindowManager
 import com.artemchep.keyguard.common.service.session.VaultLockHotkeyService
 import com.artemchep.keyguard.common.service.session.VaultSessionLocker
-import com.artemchep.keyguard.common.service.gpgagent.GpgAgentManager
-import com.artemchep.keyguard.common.service.gpgagent.GpgPublicKeyRepository
-import com.artemchep.keyguard.common.service.gpgagent.GpgAgentStatusService
-import com.artemchep.keyguard.common.service.gpgagent.retryGpgAgentStartup
-import com.artemchep.keyguard.common.service.sshagent.retrySshAgentStartup
-import com.artemchep.keyguard.common.service.sshagent.SshAgentStatusService
-import com.artemchep.keyguard.common.service.sshagent.SshAgentPublicKeyRepository
-import com.artemchep.keyguard.common.service.vault.KeyReadWriteRepository
-import com.artemchep.keyguard.common.service.pendinghistory.PendingUsageHistoryQueue
 import com.artemchep.keyguard.common.service.sshagent.SshAgentManager
-import com.artemchep.keyguard.common.model.AgentStatus
-import com.artemchep.keyguard.common.service.clipboard.ClipboardEventBus
-import com.artemchep.keyguard.common.service.clipboard.ClipboardService
-import com.artemchep.keyguard.feature.agent.rememberAgentRequestUiState
+import com.artemchep.keyguard.common.service.sshagent.SshAgentPublicKeyRepository
+import com.artemchep.keyguard.common.service.sshagent.SshAgentStatusService
+import com.artemchep.keyguard.common.service.sshagent.retrySshAgentStartup
+import com.artemchep.keyguard.common.service.vault.KeyReadWriteRepository
 import com.artemchep.keyguard.common.usecase.ClearVaultSession
 import com.artemchep.keyguard.common.usecase.GetAccounts
 import com.artemchep.keyguard.common.usecase.GetCloseToTray
 import com.artemchep.keyguard.common.usecase.GetGpgAgent
-import com.artemchep.keyguard.common.usecase.GetGpgAgentApprovalWindow
 import com.artemchep.keyguard.common.usecase.GetGpgAgentApprovalCachePolicy
+import com.artemchep.keyguard.common.usecase.GetGpgAgentApprovalWindow
 import com.artemchep.keyguard.common.usecase.GetGpgAgentFilter
 import com.artemchep.keyguard.common.usecase.GetLocale
 import com.artemchep.keyguard.common.usecase.GetMinimizeOnCopy
 import com.artemchep.keyguard.common.usecase.GetSshAgent
-import com.artemchep.keyguard.common.usecase.GetSshAgentApprovalWindow
 import com.artemchep.keyguard.common.usecase.GetSshAgentApprovalCachePolicy
+import com.artemchep.keyguard.common.usecase.GetSshAgentApprovalWindow
 import com.artemchep.keyguard.common.usecase.GetSshAgentFilter
 import com.artemchep.keyguard.common.usecase.GetVaultPersist
 import com.artemchep.keyguard.common.usecase.GetVaultSession
@@ -86,6 +86,10 @@ import com.artemchep.keyguard.common.worker.Wrker
 import com.artemchep.keyguard.copy.DataDirectory
 import com.artemchep.keyguard.core.session.diFingerprintRepositoryModule
 import com.artemchep.keyguard.desktop.WindowStateManager
+import com.artemchep.keyguard.desktop.instance.DesktopInstance
+import com.artemchep.keyguard.desktop.instance.instanceFailureDetails
+import com.artemchep.keyguard.desktop.instance.showInstanceFailure
+import com.artemchep.keyguard.desktop.instance.verifyPackagedInstanceService
 import com.artemchep.keyguard.desktop.services.autotype.AutotypeServiceNative
 import com.artemchep.keyguard.desktop.services.keychain.KeychainRepositoryNative
 import com.artemchep.keyguard.desktop.services.notification.NotificationRepositoryNative
@@ -93,7 +97,11 @@ import com.artemchep.keyguard.desktop.ui.GpgRequestWindow
 import com.artemchep.keyguard.desktop.ui.QuickSearchWindow
 import com.artemchep.keyguard.desktop.ui.SshRequestWindow
 import com.artemchep.keyguard.desktop.util.AppReopenedListenerEffect
+import com.artemchep.keyguard.desktop.util.awaitVisible
 import com.artemchep.keyguard.desktop.util.handleNavigationIntent
+import com.artemchep.keyguard.desktop.util.requestAppForeground
+import com.artemchep.keyguard.desktop.util.requestFocusWithRetry
+import com.artemchep.keyguard.feature.agent.rememberAgentRequestUiState
 import com.artemchep.keyguard.feature.favicon.Favicon
 import com.artemchep.keyguard.feature.keyguard.AppRoute
 import com.artemchep.keyguard.feature.loading.getErrorReadableMessage
@@ -111,9 +119,8 @@ import com.artemchep.keyguard.platform.lifecycle.LaunchLifecycleProviderEffect
 import com.artemchep.keyguard.platform.lifecycle.LeLifecycleState
 import com.artemchep.keyguard.platform.lifecycle.LePlatformLifecycleProvider
 import com.artemchep.keyguard.platform.lifecycle.onState
-import com.artemchep.keyguard.platform.util.isRelease
-import com.artemchep.keyguard.res.Res
 import com.artemchep.keyguard.res.*
+import com.artemchep.keyguard.res.Res
 import com.artemchep.keyguard.ui.LocalComposeWindow
 import com.artemchep.keyguard.ui.WindowScreenshotProtectionEffect
 import com.artemchep.keyguard.ui.surface.LocalBackgroundManager
@@ -124,11 +131,10 @@ import com.artemchep.keyguard.ui.theme.LocalExpressive
 import com.artemchep.keyguard.ui.theme.combineAlpha
 import com.artemchep.keyguard.util.foundation.crypto.ensurePlatformCryptoReady
 import com.kdroid.composetray.tray.api.Tray
-import com.kdroid.composetray.utils.SingleInstanceManager
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
@@ -142,7 +148,6 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
-import kotlin.time.Clock
 import okhttp3.OkHttpClient
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
@@ -161,6 +166,7 @@ import java.util.Locale
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLSocket
 import kotlin.system.exitProcess
+import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
 
 private const val NATIVE_CRYPTO_PACKAGED_SMOKE_ARGUMENT = "--native-crypto-packaged-smoke"
@@ -174,11 +180,25 @@ fun main(args: Array<String>) {
         runNativeCryptoPackagedSmoke()
         return
     }
-    runKeyguardApplication()
+    val instance = try {
+        DesktopInstance.acquire()
+    } catch (e: Exception) {
+        showInstanceFailure(e)
+        exitProcess(1)
+    }
+        ?: return
+    try {
+        runKeyguardApplication(instance)
+    } finally {
+        // Compose exits the JVM directly. Do not release ownership while GlobalScope workers
+        // can still access shared state; the OS reclaims the locks at process termination.
+        instance.stop()
+    }
 }
 
 private fun runNativeCryptoPackagedSmoke() {
     val (result, tlsRuntime) = try {
+        verifyPackagedInstanceService()
         NativeCryptoDesktopSmoke.runPackaged() to verifyPackagedDesktopTls()
     } catch (e: NativeCryptoException) {
         System.err.println(
@@ -193,7 +213,7 @@ private fun runNativeCryptoPackagedSmoke() {
     val capabilities = result.capabilities.joinToString(",") { capability -> capability.name }
     val success =
         "nativeCrypto packaged smoke passed: abi=${result.abiVersion} " +
-            "capabilities=$capabilities sha256=PASS tls=$tlsRuntime"
+            "capabilities=$capabilities sha256=PASS tls=$tlsRuntime instance=PASS"
     publishNativeCryptoPackagedSmokeResult(success)
     println(success)
 }
@@ -237,7 +257,7 @@ private fun verifyPackagedDesktopTls(): String {
 }
 
 @OptIn(ExperimentalTime::class)
-private fun runKeyguardApplication() {
+private fun runKeyguardApplication(desktopInstance: DesktopInstance) {
     ensurePlatformCryptoReady()
 
     // Allow the app to use system default proxies:
@@ -282,11 +302,6 @@ private fun runKeyguardApplication() {
     // Construct the image loader singleton to match what
     // we have set in the application's DI.
     SingletonImageLoader.setFromDi(appDi)
-
-    // Allow different builds to be run side-by-side.
-    SingleInstanceManager.configuration = SingleInstanceManager.Configuration(
-        lockIdentifier = if (isRelease) "keyguard" else "keyguard-dev",
-    )
 
     val processLifecycleProvider = LePlatformLifecycleProvider(
         scope = GlobalScope,
@@ -424,16 +439,25 @@ private fun runKeyguardApplication() {
                 }
             }
 
-            // Single instance check - restore existing window
-            // if another instance is attempted.
-            val isSingleInstance = SingleInstanceManager.isSingleInstance(
-                onRestoreRequest = {
+            LaunchedEffect(desktopInstance) {
+                try {
+                    desktopInstance.activations.collect { onWindowOpen() }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    logRepository.post(
+                        tag = "InstanceService",
+                        message = instanceFailureDetails(e),
+                        level = com.artemchep.keyguard.common.service.logging.LogLevel.ERROR,
+                    )
                     onWindowOpen()
-                },
-            )
-            if (!isSingleInstance) {
-                exitApplication()
-                return@withDI
+                    // Apply visibility before presenting recovery failure. Keep ownership
+                    // until normal JVM exit, including when the user chooses to finish edits.
+                    withFrameNanos { }
+                    if (showInstanceFailure(e, running = true)) {
+                        exitApplication()
+                    }
+                }
             }
 
             val quickSearchWindowManager by rememberInstance<QuickSearchWindowManager>()
@@ -761,6 +785,19 @@ private fun ApplicationScope.KeyguardMainWindow(
             keyboardShortcutsService.handle(event)
         },
     ) {
+        LaunchedEffect(stateManager, window) {
+            stateManager.foregroundRequests.collect {
+                state.isMinimized = false
+
+                requestAppForeground()
+                if (window.awaitVisible(tag = "MainWindow")) {
+                    window.requestFocusWithRetry(
+                        tag = "MainWindow",
+                        bringToFront = true,
+                    )
+                }
+            }
+        }
         KeyguardWindowEssentials(
             processLifecycleProvider = processLifecycleProvider,
             onMinimizeRequest = {

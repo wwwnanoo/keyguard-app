@@ -162,10 +162,9 @@ jobs:
         uses: ./.github/actions/setup_rust
         with:
           targets: ${{ matrix.rust-target }}
-      - name: "Prefetch locked native graphs"
-        run: |
-          cargo fetch --manifest-path util/crypto/rust/Cargo.toml --locked
-          cargo fetch --manifest-path util/zxcvbn/rust/Cargo.toml --locked
+      - uses: ./.github/actions/prefetch_native
+        with:
+          profile: desktop
       - uses: ./.github/actions/setup_protobuf
       - uses: ./.github/actions/build_desktop_licenses
       - name: "Decode signing certificate"
@@ -297,10 +296,9 @@ jobs:
         uses: ./.github/actions/setup_rust
         with:
           targets: ${{ matrix.rust-target }}
-      - name: "Prefetch locked native graphs"
-        run: |
-          cargo fetch --manifest-path util/crypto/rust/Cargo.toml --locked
-          cargo fetch --manifest-path util/zxcvbn/rust/Cargo.toml --locked
+      - uses: ./.github/actions/prefetch_native
+        with:
+          profile: desktop
       - uses: ./.github/actions/setup_protobuf
       - uses: ./.github/actions/setup_linux_desktop
       - name: "Setup build env"
@@ -411,10 +409,9 @@ jobs:
         uses: ./.github/actions/setup_rust
         with:
           targets: "x86_64-pc-windows-msvc"
-      - name: "Prefetch locked native graphs"
-        run: |
-          cargo fetch --manifest-path util/crypto/rust/Cargo.toml --locked
-          cargo fetch --manifest-path util/zxcvbn/rust/Cargo.toml --locked
+      - uses: ./.github/actions/prefetch_native
+        with:
+          profile: desktop
       - uses: ./.github/actions/setup_protobuf
       - uses: ./.github/actions/build_desktop_licenses
       - name: "Setup build env"
@@ -495,10 +492,9 @@ jobs:
         uses: ./.github/actions/setup_rust
         with:
           targets: "aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android"
-      - name: "Prefetch locked native graphs"
-        run: |
-          cargo fetch --manifest-path util/crypto/rust/Cargo.toml --locked
-          cargo fetch --manifest-path util/zxcvbn/rust/Cargo.toml --locked
+      - uses: ./.github/actions/prefetch_native
+        with:
+          profile: android
       - name: "Prepare env"
         run: |
           echo ${{ secrets.KEYSTORE_B64 }} | base64 -d | zcat > wearApp/keyguard-release.keystore
@@ -577,10 +573,9 @@ jobs:
         uses: ./.github/actions/setup_rust
         with:
           targets: "aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android"
-      - name: "Prefetch locked native graphs"
-        run: |
-          cargo fetch --manifest-path util/crypto/rust/Cargo.toml --locked
-          cargo fetch --manifest-path util/zxcvbn/rust/Cargo.toml --locked
+      - uses: ./.github/actions/prefetch_native
+        with:
+          profile: android
       - name: "Prepare env"
         run: |
           echo ${{ secrets.KEYSTORE_B64 }} | base64 -d | zcat > androidApp/keyguard-release.keystore

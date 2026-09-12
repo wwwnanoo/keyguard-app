@@ -31,6 +31,7 @@ on:
       - ".github/actions/prepare_kvm/**"
       - ".github/actions/setup_gradle/**"
       - ".github/actions/setup_rust/**"
+      - ".github/actions/prefetch_native/**"
       - ".github/workflows/check_native_io.yml"
   pull_request:
     branches:
@@ -55,6 +56,7 @@ on:
       - ".github/actions/prepare_kvm/**"
       - ".github/actions/setup_gradle/**"
       - ".github/actions/setup_rust/**"
+      - ".github/actions/prefetch_native/**"
       - ".github/workflows/check_native_io.yml"
 
 permissions:
@@ -168,8 +170,9 @@ jobs:
         uses: ./.github/actions/setup_rust
         with:
           targets: ${{ matrix.rust-targets }}
-      - name: "Prefetch locked native IO graph"
-        run: cargo fetch --manifest-path util/io/rust/Cargo.toml --locked
+      - uses: ./.github/actions/prefetch_native
+        with:
+          manifests: util/io/rust/Cargo.toml
       - name: "Run host Rust tests"
         working-directory: util/io/rust
         run: cargo test --workspace --all-features --locked --offline
@@ -213,8 +216,9 @@ jobs:
         uses: ./.github/actions/setup_rust
         with:
           targets: "aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android"
-      - name: "Prefetch locked native IO graph"
-        run: cargo fetch --manifest-path util/io/rust/Cargo.toml --locked
+      - uses: ./.github/actions/prefetch_native
+        with:
+          manifests: util/io/rust/Cargo.toml
       - uses: ./.github/actions/prepare_kvm
       - uses: ./.github/actions/prepare_disk_space
       - name: "Prepare Android package environment"

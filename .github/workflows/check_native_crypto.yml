@@ -18,6 +18,7 @@ on:
       - master
     paths:
       - "util/crypto/**"
+      - "util/instance/**"
       - "thirdParty/rust/**"
       - "util/foundation/**"
       - "util/kdbx/**"
@@ -55,6 +56,7 @@ on:
       - ".github/actions/setup_gpg/**"
       - ".github/actions/setup_gradle/**"
       - ".github/actions/setup_rust/**"
+      - ".github/actions/prefetch_native/**"
       - ".github/actions/setup_protobuf/**"
       - ".github/actions/build_android_licenses/**"
       - ".github/actions/build_android_baseline_profiles/**"
@@ -69,6 +71,7 @@ on:
       - master
     paths:
       - "util/crypto/**"
+      - "util/instance/**"
       - "thirdParty/rust/**"
       - "util/foundation/**"
       - "util/kdbx/**"
@@ -106,6 +109,7 @@ on:
       - ".github/actions/setup_gpg/**"
       - ".github/actions/setup_gradle/**"
       - ".github/actions/setup_rust/**"
+      - ".github/actions/prefetch_native/**"
       - ".github/actions/setup_protobuf/**"
       - ".github/actions/build_android_licenses/**"
       - ".github/actions/build_android_baseline_profiles/**"
@@ -341,6 +345,8 @@ jobs:
               :util:crypto:bundleAndroidMainAar
               :androidApp:assembleNoneDebug
               :wearApp:assembleNoneDebug
+              :util:instance:desktopTest
+              :desktopApp:jvmTest
               :desktopApp:createDistributable
             inspect-android: true
             inspect-apple: false
@@ -353,6 +359,8 @@ jobs:
               :util:foundation:desktopTest
               :util:kdbx:desktopTest
               :util:crypto:compileNativeCryptoDesktopLinuxArm64
+              :util:instance:desktopTest
+              :desktopApp:jvmTest
               :desktopApp:createDistributable
             inspect-android: false
             inspect-apple: false
@@ -365,6 +373,8 @@ jobs:
               :util:foundation:desktopTest
               :util:kdbx:desktopTest
               :util:crypto:compileNativeCryptoDesktopMacosX64
+              :util:instance:desktopTest
+              :desktopApp:jvmTest
               :desktopApp:createDistributable
             inspect-android: false
             inspect-apple: false
@@ -376,6 +386,7 @@ jobs:
               :util:crypto:desktopTest
               :util:crypto:iosSimulatorArm64Test
               :util:crypto:macosArm64Test
+              :util:instance:macosArm64Test
               :util:foundation:desktopTest
               :util:foundation:iosSimulatorArm64Test
               :util:foundation:macosArm64Test
@@ -393,6 +404,8 @@ jobs:
               :iosApp:linkDebugFrameworkIosSimulatorArm64
               :util:crypto:compileNativeCryptoDesktopMacosArm64
               :util:crypto:compileNativeCryptoAppleAll
+              :util:instance:desktopTest
+              :desktopApp:jvmTest
               :desktopApp:createDistributable
             inspect-android: false
             inspect-apple: true
@@ -405,6 +418,8 @@ jobs:
               :util:foundation:desktopTest
               :util:kdbx:desktopTest
               :util:crypto:compileNativeCryptoDesktopWindowsX64
+              :util:instance:desktopTest
+              :desktopApp:jvmTest
               :desktopApp:createDistributable
             inspect-android: false
             inspect-apple: false
@@ -473,10 +488,21 @@ jobs:
           cargo clippy
           --manifest-path desktopLibNative/src/Cargo.toml
           --all-targets --locked -- -D clippy::undocumented_unsafe_blocks
-      - name: "Prefetch locked native crypto graph"
-        run: |
-          cargo fetch --manifest-path util/crypto/rust/Cargo.toml --locked
-          cargo fetch --manifest-path thirdParty/rust/Cargo.toml --locked
+      - uses: ./.github/actions/prefetch_native
+        with:
+          manifests: |
+            util/crypto/rust/Cargo.toml
+            thirdParty/rust/Cargo.toml
+            util/instance/rust/Cargo.toml
+      - name: "Check instance Rust formatting"
+        working-directory: util/instance/rust
+        run: cargo fmt --all -- --check
+      - name: "Run instance Rust static analysis"
+        working-directory: util/instance/rust
+        run: cargo clippy --workspace --all-targets --locked --offline --no-deps -- -D warnings
+      - name: "Run instance Rust tests"
+        working-directory: util/instance/rust
+        run: cargo test --workspace --locked --offline
       - name: "Run POLYVAL Armv8 PMULL backend tests"
         if: matrix.name == 'macOS arm64 and Apple'
         working-directory: thirdParty/rust
@@ -506,6 +532,10 @@ jobs:
           path: |
             util/crypto/build/reports/tests/desktopTest/
             util/crypto/build/test-results/desktopTest/
+            util/instance/build/reports/tests/
+            util/instance/build/test-results/
+            desktopApp/build/reports/tests/jvmTest/
+            desktopApp/build/test-results/jvmTest/
           if-no-files-found: ignore
           retention-days: 21
       - name: "Run JVM import compatibility corpus"
@@ -636,8 +666,9 @@ jobs:
         uses: ./.github/actions/setup_rust
         with:
           targets: "aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android"
-      - name: "Prefetch locked native crypto graph"
-        run: cargo fetch --manifest-path util/crypto/rust/Cargo.toml --locked
+      - uses: ./.github/actions/prefetch_native
+        with:
+          manifests: util/crypto/rust/Cargo.toml
       - uses: ./.github/actions/prepare_kvm
       - uses: ./.github/actions/prepare_disk_space
       - name: "Prepare Android package environment"
@@ -698,8 +729,9 @@ jobs:
         uses: ./.github/actions/setup_rust
         with:
           targets: "aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android"
-      - name: "Prefetch locked native crypto graph"
-        run: cargo fetch --manifest-path util/crypto/rust/Cargo.toml --locked
+      - uses: ./.github/actions/prefetch_native
+        with:
+          manifests: util/crypto/rust/Cargo.toml
       - uses: ./.github/actions/prepare_kvm
       - uses: ./.github/actions/prepare_disk_space
       - name: "Prepare Wear package environment"
@@ -743,9 +775,11 @@ jobs:
           persist-credentials: false
       - name: "Setup pinned Rust toolchain"
         uses: ./.github/actions/setup_rust
+      - uses: ./.github/actions/prefetch_native
+        with:
+          manifests: util/crypto/rust/Cargo.toml
       - name: "Verify release-readiness exception record"
         run: |
-          cargo fetch --locked --manifest-path util/crypto/rust/Cargo.toml
           cargo run \
             --manifest-path util/crypto/tools/native-crypto-policy/Cargo.toml \
             --locked -- \

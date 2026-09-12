@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Execute the nativeCrypto KAT through an extracted Desktop package launcher."""
+"""Exercise native crypto, TLS, and instance IPC through an extracted Desktop launcher."""
 
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ from typing import Iterable
 SMOKE_ARGUMENT = "--native-crypto-packaged-smoke"
 SUCCESS_PREFIX = "nativeCrypto packaged smoke passed:"
 TLS_SUCCESS_MARKER = "tls=OkHttp/SunJSSE/JDK21"
+INSTANCE_SUCCESS_MARKER = "instance=PASS"
 RESULT_PATH_ENV = "KEYGUARD_NATIVE_CRYPTO_SMOKE_RESULT_PATH"
 RESULT_NONCE_ENV = "KEYGUARD_NATIVE_CRYPTO_SMOKE_NONCE"
 RESULT_TIMEOUT_SECONDS = 60.0
@@ -65,7 +66,7 @@ def validate_smoke_evidence(evidence: str, nonce: str) -> str:
     output = "\n".join(lines[1:])
     missing_markers = tuple(
         marker
-        for marker in (SUCCESS_PREFIX, TLS_SUCCESS_MARKER)
+        for marker in (SUCCESS_PREFIX, TLS_SUCCESS_MARKER, INSTANCE_SUCCESS_MARKER)
         if marker not in output
     )
     if missing_markers:

@@ -1,0 +1,55 @@
+name: "Prefetch Native"
+description: "Fetch locked Cargo dependencies for native builds"
+inputs:
+  profile:
+    description: "Native dependency group: desktop or android; omit to use explicit manifests only"
+    required: false
+    default: ""
+  manifests:
+    description: "Additional Cargo.toml paths, one per line, relative to the repository root"
+    required: false
+    default: ""
+runs:
+  using: "composite"
+  steps:
+    - name: "Prefetch locked native graphs"
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      env:
+        PREFETCH_PROFILE: ${{ inputs.profile }}
+        PREFETCH_MANIFESTS: ${{ inputs.manifests }}
+      run: |
+        set -eo pipefail
+
+        manifests=()
+        case "$PREFETCH_PROFILE" in
+          desktop|android)
+            manifests+=(
+              util/crypto/rust/Cargo.toml
+              util/zxcvbn/rust/Cargo.toml
+            )
+            if [[ "$PREFETCH_PROFILE" == desktop ]]; then
+              manifests+=(util/instance/rust/Cargo.toml)
+            fi
+            ;;
+          "") ;;
+          *)
+            echo "Unknown native prefetch profile: $PREFETCH_PROFILE" >&2
+            exit 1
+            ;;
+        esac
+
+        while IFS= read -r manifest; do
+          manifest="${manifest%$'\r'}"
+          [[ -z "$manifest" ]] && continue
+          manifests+=("$manifest")
+        done <<< "$PREFETCH_MANIFESTS"
+
+        if [[ ${#manifests[@]} -eq 0 ]]; then
+          echo "Specify a native prefetch profile or explicit manifests." >&2
+          exit 1
+        fi
+
+        for manifest in "${manifests[@]}"; do
+          cargo fetch --manifest-path "$manifest" --locked
+        done
