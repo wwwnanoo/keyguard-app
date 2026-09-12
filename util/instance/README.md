@@ -53,7 +53,7 @@ is available. If listener recovery fails, the app shows its main window and offe
 Quit so ownership can be released through normal process termination.
 Coordination files live in a sibling directory named `<data-directory-name>.instance`
 beside the app's data directory. Those files survive erasing data, settings, and caches;
-the OS releases ownership at process termination. The packaged crypto smoke entry
+the OS releases ownership at process termination. The packaged native smoke entry
 point also exercises isolated instance IPC and never opens the user's instance lock.
 
 ## Validation
@@ -65,14 +65,15 @@ cargo clippy --manifest-path util/instance/rust/Cargo.toml --workspace --all-tar
 ./gradlew :util:instance:desktopTest
 ./gradlew :util:instance:macosArm64Test
 ./gradlew :desktopApp:jvmTest
-python3 -m unittest scripts.test_run_native_crypto_desktop_package_smoke
+python3 -m unittest discover -s scripts -p 'test_*native*py'
 ```
 
-Native macOS tests need macOS and the installed Apple Rust target. CI runs Rust
-formatting, Clippy, Rust tests, instance JVM tests, and desktop application JVM
-tests on Windows, Linux, and macOS. Kotlin/Native tests run on macOS arm64.
+Native macOS tests need macOS and the installed Apple Rust target. CI uses
+representative PR coverage and checks produced release packages; the complete
+platform matrix is available manually. Rust and JVM tests support Windows,
+Linux, and macOS. Kotlin/Native tests run on macOS arm64.
 Release package smoke requires
-`instance=PASS` alongside crypto and TLS evidence. Manual UI checks should cover a
+`instance=PASS` alongside the other native library, helper, and TLS checks. Manual UI checks should cover a
 backgrounded, minimized, hidden-to-tray, locked, or still-loading main window; OS
 focus permission is distinct from successful IPC delivery.
 

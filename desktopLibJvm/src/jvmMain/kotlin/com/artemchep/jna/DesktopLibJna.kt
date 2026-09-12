@@ -50,6 +50,12 @@ private fun findLibBinaryFile(): File {
     throw IllegalStateException(errorMessage)
 }
 
+/** Loads the packaged bridge and resolves an export without accessing platform services. */
+public fun ensureDesktopLibAvailable() {
+    // free(NULL) is a no-op on every platform.
+    DesktopLibJna.get().freePointer(Pointer(0))
+}
+
 public interface DesktopLibJna : Library {
     public companion object {
         @Volatile

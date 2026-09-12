@@ -52,9 +52,13 @@ ARCH="$arch" VERSION="$version" "$tool" --appimage-extract-and-run \
 test -s "$appimage"
 test -x "$appimage"
 
-# Exercise the final AppImage's runtime and launcher without requiring FUSE.
-APPIMAGE_EXTRACT_AND_RUN=1 python3 "$repo_dir/scripts/run_native_crypto_desktop_package_smoke.py" \
-  "$app_dir" --platform linux --launcher "$appimage"
+# Inspect the final SquashFS payload, then exercise the AppImage launcher without FUSE.
+(
+  cd "$work_dir"
+  "$appimage" --appimage-extract > /dev/null
+)
+APPIMAGE_EXTRACT_AND_RUN=1 python3 "$repo_dir/scripts/verify_native_bundle.py" \
+  desktop "$work_dir/squashfs-root" --platform linux --arch "$arch" --launcher "$appimage"
 
 # Publish the output only after all validation succeeds.
 mv -f -- "$appimage" "$output_dir/$filename"

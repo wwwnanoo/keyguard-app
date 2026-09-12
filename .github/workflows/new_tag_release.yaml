@@ -97,10 +97,12 @@ jobs:
           VERSION_TAG_NO_PREFIX="${VERSION_TAG#r}"
           RELEASE_NAME="v${VERSION_SEMANTIC}-${VERSION_TAG_NO_PREFIX}"
           DATE=$(echo "$VERSION_TAG" | sed -E 's/^r([0-9]{4})([0-9]{2})([0-9]{2}).*$/\1-\2-\3/')
-          echo "version_semantic=$VERSION_SEMANTIC" >> $GITHUB_OUTPUT
-          echo "version_tag=$VERSION_TAG" >> $GITHUB_OUTPUT
-          echo "release_name=$RELEASE_NAME" >> $GITHUB_OUTPUT
-          echo "date=$DATE" >> $GITHUB_OUTPUT
+          {
+            echo "version_semantic=$VERSION_SEMANTIC"
+            echo "version_tag=$VERSION_TAG"
+            echo "release_name=$RELEASE_NAME"
+            echo "date=$DATE"
+          } >> "$GITHUB_OUTPUT"
       - name: "Produce versions.json"
         run: |
           python keyguard-app/.github/update_versions_json.py keyguard-version/versions.json \
@@ -134,8 +136,8 @@ jobs:
           python .github/scripts/versioning/fetch_version.py --package-name com.artemchep.keyguard --credentials service-account-google.json --output play-store-versions.json
           WEAR_VERSION_CODE=$(jq -r '.wear_version_code' play-store-versions.json)
           ANDROID_VERSION_CODE=$(jq -r '.android_version_code' play-store-versions.json)
-          echo "wear_version_code=$WEAR_VERSION_CODE" >> $GITHUB_OUTPUT
-          echo "android_version_code=$ANDROID_VERSION_CODE" >> $GITHUB_OUTPUT
+          echo "wear_version_code=$WEAR_VERSION_CODE" >> "$GITHUB_OUTPUT"
+          echo "android_version_code=$ANDROID_VERSION_CODE" >> "$GITHUB_OUTPUT"
   build-macos-app:
     runs-on: ${{ matrix.runner }}
     strategy:
@@ -144,9 +146,11 @@ jobs:
         include:
           - runner: macos-15
             arch: apple
+            native-arch: aarch64
             rust-target: aarch64-apple-darwin
           - runner: macos-15-intel
             arch: intel
+            native-arch: x86_64
             rust-target: x86_64-apple-darwin
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -162,6 +166,7 @@ jobs:
         uses: ./.github/actions/setup_rust
         with:
           targets: ${{ matrix.rust-target }}
+          cache-key: desktop
       - uses: ./.github/actions/prefetch_native
         with:
           profile: desktop
@@ -184,41 +189,30 @@ jobs:
           echo "cert_identity=${{ secrets.CERT_IDENTITY }}" >> gradle.properties
       - name: "Setup notarization config"
         run: |
-          echo "" >> gradle.properties
-          echo "notarization_apple_id=${{ secrets.NOTARIZATION_APPLE_ID }}" >> gradle.properties
-          echo "notarization_password=${{ secrets.NOTARIZATION_PASSWD }}" >> gradle.properties
-          echo "notarization_asc_provider=${{ secrets.NOTARIZATION_ASC_PROVIDER }}" >> gradle.properties
+          {
+            echo ""
+            echo "notarization_apple_id=${{ secrets.NOTARIZATION_APPLE_ID }}"
+            echo "notarization_password=${{ secrets.NOTARIZATION_PASSWD }}"
+            echo "notarization_asc_provider=${{ secrets.NOTARIZATION_ASC_PROVIDER }}"
+          } >> gradle.properties
       - name: "Build release app image"
         run: >-
           ./gradlew
           :desktopApp:createReleaseDistributable
-          -Pkeyguard.nativeCrypto.cargoOffline=true
-      - name: "Inspect bundled native crypto"
+          -Pkeyguard.nativeCargo.cargoOffline=true
+      - name: "Verify native code signing"
+        shell: bash
         run: |
-          set -euo pipefail
-
-          APP_RESOURCES_DIR="desktopApp/build/compose/binaries/main-release/app/Keyguard.app/Contents/app/resources"
-          NATIVE_CRYPTO_BINARY="$APP_RESOURCES_DIR/libkeyguard_crypto_jni.dylib"
-
-          test -f "$NATIVE_CRYPTO_BINARY"
-
-          ls -l "$NATIVE_CRYPTO_BINARY"
-          python scripts/inspect_native_crypto_desktop.py "$NATIVE_CRYPTO_BINARY"
-          python scripts/check_bouncycastle_policy.py --artifact desktopApp/build/compose/binaries/main-release/app
-          codesign --verify --strict --verbose=2 "$NATIVE_CRYPTO_BINARY"
-          codesign --display --verbose=2 "$NATIVE_CRYPTO_BINARY"
-      - name: "Call native crypto through release app resources"
-        run: >-
-          python3 scripts/run_native_crypto_desktop_package_smoke.py
-          desktopApp/build/compose/binaries/main-release/app
+          codesign --verify --strict --verbose=2 \
+            desktopApp/build/compose/binaries/main-release/app/Keyguard.app
       - name: "Build and notarize DMG"
         run: >-
           ./gradlew
           :desktopApp:packageReleaseDmg
           :desktopApp:notarizeReleaseDmg
           -x :desktopApp:createReleaseDistributable
-          -Pkeyguard.nativeCrypto.cargoOffline=true
-      - name: "Mount DMG and call packaged native crypto"
+          -Pkeyguard.nativeCargo.cargoOffline=true
+      - name: "Verify final DMG native bundle"
         shell: bash
         run: |
           set -euo pipefail
@@ -240,15 +234,8 @@ jobs:
           mounted=true
           apps=("$mount_point"/*.app)
           test "${#apps[@]}" -eq 1
-          resources_dir="${apps[0]}/Contents/app/resources"
-          native_crypto_binary="$resources_dir/libkeyguard_crypto_jni.dylib"
-          test -f "$native_crypto_binary"
-          for helper in keyguard-ssh-agent keyguard-gpg-agent keyguard-lib; do
-            test -x "$resources_dir/$helper"
-          done
-          python3 scripts/inspect_native_crypto_desktop.py "$native_crypto_binary"
-          python3 scripts/run_native_crypto_desktop_package_smoke.py "$mount_point"
-          python3 scripts/check_bouncycastle_policy.py --artifact "$mount_point"
+          python3 scripts/verify_native_bundle.py desktop "$mount_point" \
+            --platform macos --arch "${{ matrix.native-arch }}"
       - name: "Upload logs"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
@@ -265,7 +252,7 @@ jobs:
       - name: "Add a suffix to the artifacts"
         run: |
           cd desktopApp/build/compose/binaries/main-release/dmg
-          for f in * ; do mv -- "$f" "$(echo $f | sed -nE 's/^(.*)(\..*)$/\1-${{ matrix.arch }}\2/p')" ; done
+          for f in * ; do mv -- "$f" "$(echo "$f" | sed -nE 's/^(.*)(\..*)$/\1-${{ matrix.arch }}\2/p')" ; done
       - name: "Upload .dmg"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
@@ -296,6 +283,7 @@ jobs:
         uses: ./.github/actions/setup_rust
         with:
           targets: ${{ matrix.rust-target }}
+          cache-key: desktop
       - uses: ./.github/actions/prefetch_native
         with:
           profile: desktop
@@ -324,13 +312,7 @@ jobs:
         run: >-
           ./gradlew
           :desktopApp:packageReleaseDistributable
-          -Pkeyguard.nativeCrypto.cargoOffline=true
-      - name: 'Upload .tar'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: app-linux-${{ matrix.arch }}
-          path: |
-            desktopApp/build/distributions/*.tar.gz
+          -Pkeyguard.nativeCargo.cargoOffline=true
       - name: "Move binaries into the template directory"
         id: linux-package
         shell: bash
@@ -344,17 +326,17 @@ jobs:
           echo "tarball=${tarballs[0]}" >> "$GITHUB_OUTPUT"
           mkdir -p "desktopApp/flatpak/app-$LINUX_ARCH"
           tar -xzf "${tarballs[0]}" -C "desktopApp/flatpak/app-$LINUX_ARCH" --strip-components=1
-      - name: "Inspect packaged native crypto"
-        shell: bash
-        run: |
-          mapfile -t libraries < <(find desktopApp/flatpak/app-${{ matrix.arch }} -type f -name 'libkeyguard_crypto_jni.so')
-          test "${#libraries[@]}" -eq 1
-          python scripts/inspect_native_crypto_desktop.py "${libraries[0]}"
-          python scripts/check_bouncycastle_policy.py --artifact desktopApp/flatpak/app-${{ matrix.arch }}
-      - name: "Call native crypto through packaged Desktop resources"
+      - name: "Verify release tarball native bundle"
         run: >-
-          python3 scripts/run_native_crypto_desktop_package_smoke.py
+          python3 scripts/verify_native_bundle.py desktop
           desktopApp/flatpak/app-${{ matrix.arch }}
+          --platform linux --arch ${{ matrix.arch }}
+      - name: 'Upload .tar'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: app-linux-${{ matrix.arch }}
+          path: |
+            desktopApp/build/distributions/*.tar.gz
       - name: "Build and verify AppImage"
         id: appimage
         uses: ./.github/actions/build_appimage
@@ -368,28 +350,19 @@ jobs:
           name: app-linux-appimage-${{ matrix.arch }}
           path: ${{ steps.appimage.outputs.path }}
           if-no-files-found: error
-      - name: "Get Flatpak runtime version -install dependencies"
-        run: pip install -r .github/get_flatpak_runtime_version.requirements.txt
-      - name: "Get Flatpak runtime version"
-        id: get-flatpak-runtime-version
-        run: echo "version=$(python .github/get_flatpak_runtime_version.py desktopApp/flatpak/com.artemchep.keyguard.yml)" >> $GITHUB_OUTPUT
-      - name: "Setup Flatpak"
-        run: |
-          sudo apt-get update
-          sudo apt install flatpak flatpak-builder
-          flatpak remote-add --if-not-exists --user flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-          flatpak install flathub org.freedesktop.Platform//${{ steps.get-flatpak-runtime-version.outputs.version }} org.freedesktop.Sdk//${{ steps.get-flatpak-runtime-version.outputs.version }} -y
-      - name: "Build"
-        working-directory: desktopApp/flatpak/
-        run: |
-          flatpak-builder --force-clean --state-dir=build/flatpak-builder --repo=build/flatpak-repo build/flatpak-target com.artemchep.keyguard.yml
-          flatpak build-bundle build/flatpak-repo "Keyguard-$(find ../build/distributions -type f -name '*.tar.gz' | sed -E 's/.*-([0-9]+\.[0-9]+\.[0-9]+)-.*/\1/')-${{ matrix.arch }}.flatpak" com.artemchep.keyguard
+      - name: "Build and verify Flatpak"
+        id: flatpak
+        uses: ./.github/actions/build_flatpak
+        with:
+          tarball: ${{ steps.linux-package.outputs.tarball }}
+          arch: ${{ matrix.arch }}
+          version: ${{ needs.generate-versions.outputs.version-semantic }}
       - name: 'Upload .flatpak'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: app-linux-flatpak-${{ matrix.arch }}
-          path: |
-            desktopApp/flatpak/Keyguard-*.flatpak
+          path: ${{ steps.flatpak.outputs.path }}
+          if-no-files-found: error
   build-windows-app:
     runs-on: windows-latest
     env:
@@ -409,6 +382,7 @@ jobs:
         uses: ./.github/actions/setup_rust
         with:
           targets: "x86_64-pc-windows-msvc"
+          cache-key: desktop
       - uses: ./.github/actions/prefetch_native
         with:
           profile: desktop
@@ -422,7 +396,7 @@ jobs:
         run: >-
           ./gradlew
           :desktopApp:packageReleaseMsi
-          "-Pkeyguard.nativeCrypto.cargoOffline=true"
+          "-Pkeyguard.nativeCargo.cargoOffline=true"
       - name: "Extract final MSI"
         shell: pwsh
         run: |
@@ -443,24 +417,12 @@ jobs:
           if ($process.ExitCode -ne 0) {
             throw "MSI administrative extraction exited $($process.ExitCode)."
           }
-      - name: "Inspect packaged native crypto"
-        shell: pwsh
-        run: |
-          $libraries = @(
-            Get-ChildItem (Join-Path $env:RUNNER_TEMP "keyguard-msi") `
-              -Recurse -File -Filter "keyguard_crypto_jni.dll"
-          )
-          if ($libraries.Count -ne 1) {
-            throw "Expected one packaged native crypto DLL; found $($libraries.Count)."
-          }
-          python scripts/inspect_native_crypto_desktop.py $libraries[0].FullName
-          python scripts/check_bouncycastle_policy.py --artifact (Join-Path $env:RUNNER_TEMP "keyguard-msi")
-      - name: "Call native crypto from the extracted MSI"
+      - name: "Verify final MSI native bundle"
         shell: pwsh
         run: >-
-          python scripts/run_native_crypto_desktop_package_smoke.py
+          python scripts/verify_native_bundle.py desktop
           (Join-Path $env:RUNNER_TEMP "keyguard-msi")
-          --platform windows
+          --platform windows --arch x86_64
       - name: 'Upload .msi'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
@@ -492,6 +454,7 @@ jobs:
         uses: ./.github/actions/setup_rust
         with:
           targets: "aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android"
+          cache-key: android
       - uses: ./.github/actions/prefetch_native
         with:
           profile: android
@@ -512,8 +475,8 @@ jobs:
         run: >-
           ./gradlew
           :wearApp:${{ matrix.config.build-type }}${{ matrix.config.flavor }}Release
-          -Pkeyguard.nativeCrypto.cargoOffline=true
-      - name: "Inspect packaged native crypto"
+          -Pkeyguard.nativeCargo.cargoOffline=true
+      - name: "Verify native bundle"
         shell: bash
         env:
           BUILD_FLAVOR: ${{ matrix.config.flavor }}
@@ -529,8 +492,7 @@ jobs:
           else
             artifact="wearApp/build/outputs/bundle/${variant}Release/wearApp-$variant-release.aab"
           fi
-          python scripts/inspect_native_crypto_android.py "$artifact"
-          python scripts/check_bouncycastle_policy.py --artifact "$artifact"
+          python scripts/verify_native_bundle.py android "$artifact"
       - name: 'Upload .apk'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: matrix.config.build-type == 'assemble'
@@ -573,6 +535,7 @@ jobs:
         uses: ./.github/actions/setup_rust
         with:
           targets: "aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android"
+          cache-key: android
       - uses: ./.github/actions/prefetch_native
         with:
           profile: android
@@ -597,8 +560,8 @@ jobs:
         run: >-
           ./gradlew
           :androidApp:${{ matrix.config.build-type }}${{ matrix.config.flavor }}Release
-          -Pkeyguard.nativeCrypto.cargoOffline=true
-      - name: "Inspect packaged native crypto"
+          -Pkeyguard.nativeCargo.cargoOffline=true
+      - name: "Verify native bundle"
         shell: bash
         env:
           BUILD_FLAVOR: ${{ matrix.config.flavor }}
@@ -614,8 +577,7 @@ jobs:
           else
             artifact="androidApp/build/outputs/bundle/${variant}Release/androidApp-$variant-release.aab"
           fi
-          python scripts/inspect_native_crypto_android.py "$artifact"
-          python scripts/check_bouncycastle_policy.py --artifact "$artifact"
+          python scripts/verify_native_bundle.py android "$artifact"
       - name: 'Upload .apk'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: matrix.config.build-type == 'assemble'
@@ -652,6 +614,7 @@ jobs:
         uses: ./.github/actions/setup_rust
         with:
           targets: aarch64-linux-android, armv7-linux-androideabi, x86_64-linux-android
+          cache-key: android
           components: "clippy,rustfmt"
       - uses: ./.github/actions/setup_android_ndk
       - uses: ./.github/actions/setup_protobuf

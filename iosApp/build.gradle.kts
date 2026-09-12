@@ -25,8 +25,25 @@ kotlin {
             }
         }
 
+        val commonTest by getting {
+            dependencies {
+                implementation(kotlin("test"))
+                implementation(libs.kotlinx.coroutines.test)
+            }
+        }
+
         val iosMain by creating {
             dependsOn(commonMain)
+        }
+
+        val iosTest by creating {
+            dependsOn(commonTest)
+        }
+        val iosArm64Test by getting {
+            dependsOn(iosTest)
+        }
+        val iosSimulatorArm64Test by getting {
+            dependsOn(iosTest)
         }
 
         val iosArm64Main by getting {

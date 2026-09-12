@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify nativeCrypto Android ABI coverage and 16 KiB ELF compatibility.
+"""Parse Android packages and verify native ABI, exports, and 16 KiB compatibility.
 
 The inspector is read-only. It accepts AAR/APK/AAB/ZIP files, directories, or
 individual staged shared libraries. Multiple inputs are treated as one package
@@ -8,9 +8,7 @@ set, which also supports split APK inspection.
 
 from __future__ import annotations
 
-import argparse
 import struct
-import sys
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -329,22 +327,9 @@ def read_elf_exports(library: Library) -> set[str]:
     return exports
 
 
-def load_export_policy(path: Path) -> frozenset[str]:
-    """Read the exact JNI export policy."""
-
-    if not path.is_file():
-        raise InspectionError(f"export policy does not exist: {path}")
-    exports = frozenset(
-        line.strip()
-        for line in path.read_text(encoding="utf-8").splitlines()
-        if line.strip() and not line.lstrip().startswith("#")
-    )
-    if not exports:
-        raise InspectionError(f"export policy is empty: {path}")
-    return exports
-
-
-def inspect_exports(library: Library, required: frozenset[str]) -> int:
+def inspect_exports(
+    library: Library, required: frozenset[str], api_prefix: str = JNI_EXPORT_PREFIX,
+) -> int:
     """Validate the exact JNI export family and return its symbol count."""
 
     exports = read_elf_exports(library)
@@ -352,7 +337,7 @@ def inspect_exports(library: Library, required: frozenset[str]) -> int:
     unexpected = sorted(
         symbol
         for symbol in exports
-        if symbol.startswith(JNI_EXPORT_PREFIX) and symbol not in required
+        if symbol.startswith(api_prefix) and symbol not in required
     )
     if missing:
         raise InspectionError(f"{library.label}: missing JNI exports: {', '.join(missing)}")
@@ -461,80 +446,3 @@ def collect_libraries(paths: Sequence[Path], library_name: str) -> list[Library]
             raise InspectionError(f"unsupported artifact type: {path}")
     return libraries
 
-
-def parse_arguments(argv: Sequence[str]) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("artifacts", nargs="*", type=Path)
-    parser.add_argument(
-        "--file-list",
-        type=Path,
-        help="newline-delimited additional artifacts (for CI discovery)",
-    )
-    parser.add_argument("--library-name", default="libkeyguard_crypto_jni.so")
-    parser.add_argument(
-        "--export-policy",
-        type=Path,
-        default=Path(".github/native-crypto-jni-exports.txt"),
-    )
-    parser.add_argument(
-        "--expected-abi",
-        action="append",
-        dest="expected_abis",
-        choices=DEFAULT_ABIS,
-        help="required ABI; repeat to override the four-ABI default",
-    )
-    parser.add_argument("--page-size", type=int, default=16 * 1024)
-    return parser.parse_args(argv)
-
-
-def main(argv: Sequence[str] | None = None) -> int:
-    args = parse_arguments(sys.argv[1:] if argv is None else argv)
-    paths = list(args.artifacts)
-    if args.file_list is not None:
-        if not args.file_list.is_file():
-            print(f"ERROR: file list does not exist: {args.file_list}", file=sys.stderr)
-            return 2
-        paths.extend(
-            Path(line.strip())
-            for line in args.file_list.read_text(encoding="utf-8").splitlines()
-            if line.strip() and not line.lstrip().startswith("#")
-        )
-    if not paths:
-        print("ERROR: no Android artifacts supplied", file=sys.stderr)
-        return 2
-    if args.page_size <= 0 or args.page_size & (args.page_size - 1):
-        print("ERROR: page size must be a positive power of two", file=sys.stderr)
-        return 2
-
-    expected = set(args.expected_abis or DEFAULT_ABIS)
-    try:
-        required_exports = load_export_policy(args.export_policy)
-        libraries = collect_libraries(paths, args.library_name)
-        if not libraries:
-            raise InspectionError(f"no {args.library_name} libraries found")
-        found = {library.abi for library in libraries}
-        missing = sorted(expected - found)
-        unexpected = sorted(found - expected)
-        if missing:
-            raise InspectionError(f"missing Android ABIs: {', '.join(missing)}")
-        if unexpected:
-            raise InspectionError(f"unexpected Android ABIs: {', '.join(unexpected)}")
-        for library in libraries:
-            segment_count, bind_now = inspect_elf(library, args.page_size)
-            export_count = inspect_exports(library, required_exports)
-            binding = "BIND_NOW" if bind_now else "lazy binding"
-            print(
-                f"OK {library.abi}: {library.label} "
-                f"({segment_count} load segments, {export_count} JNI exports, "
-                f"{args.page_size}-byte aligned, NX stack, GNU_RELRO, {binding})"
-            )
-    except (InspectionError, OSError) as error:
-        print(f"ERROR: {error}", file=sys.stderr)
-        return 1
-
-    print(f"Validated {len(libraries)} native libraries across {len(found)} ABIs.")
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

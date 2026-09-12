@@ -23,10 +23,6 @@ val versionInfo = createVersionInfo(
     logicalVersion = libs.versions.appVersionCode.get().toInt(),
 )
 
-val nativeCryptoMinifiedSmoke = providers.gradleProperty("keyguard.nativeCrypto.minifiedSmoke")
-    .map(String::toBoolean)
-    .orElse(false)
-
 android {
     configureKeyguardApplication(project)
     namespace = "com.artemchep.keyguard"
@@ -37,30 +33,12 @@ android {
         versionName = versionInfo.marketingVersion
     }
 
-    testOptions {
-        if (nativeCryptoMinifiedSmoke.get()) {
-            testBuildType = "nativeCryptoSmokeRelease"
-        }
-    }
-
     buildTypes {
-        val releaseBuildType = getByName("release")
         create("benchmarkRelease") {
             signingConfig = signingConfigs.getByName("debug")
         }
         create("nonMinifiedRelease") {
             signingConfig = signingConfigs.getByName("debug")
-        }
-        if (nativeCryptoMinifiedSmoke.get()) {
-            // Internal instrumentation-only target: leave production release
-            // signing untouched while exercising the same shrinking rules.
-            create("nativeCryptoSmokeRelease") {
-                initWith(releaseBuildType)
-                signingConfig = signingConfigs.getByName("debug")
-                matchingFallbacks += listOf("release")
-                proguardFile("native-crypto-smoke-app-rules.pro")
-                testProguardFiles("native-crypto-smoke-test-rules.pro")
-            }
         }
     }
 }

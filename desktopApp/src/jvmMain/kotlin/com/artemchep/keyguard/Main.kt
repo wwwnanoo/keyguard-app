@@ -86,10 +86,11 @@ import com.artemchep.keyguard.common.worker.Wrker
 import com.artemchep.keyguard.copy.DataDirectory
 import com.artemchep.keyguard.core.session.diFingerprintRepositoryModule
 import com.artemchep.keyguard.desktop.WindowStateManager
+import com.artemchep.keyguard.desktop.nativebundle.NATIVE_PACKAGED_SMOKE_ARGUMENT
+import com.artemchep.keyguard.desktop.nativebundle.runNativePackagedSmoke
 import com.artemchep.keyguard.desktop.instance.DesktopInstance
 import com.artemchep.keyguard.desktop.instance.instanceFailureDetails
 import com.artemchep.keyguard.desktop.instance.showInstanceFailure
-import com.artemchep.keyguard.desktop.instance.verifyPackagedInstanceService
 import com.artemchep.keyguard.desktop.services.autotype.AutotypeServiceNative
 import com.artemchep.keyguard.desktop.services.keychain.KeychainRepositoryNative
 import com.artemchep.keyguard.desktop.services.notification.NotificationRepositoryNative
@@ -110,8 +111,6 @@ import com.artemchep.keyguard.feature.navigation.NavigationController
 import com.artemchep.keyguard.feature.navigation.NavigationNode
 import com.artemchep.keyguard.feature.navigation.NavigationRouterBackHandler
 import com.artemchep.keyguard.feature.navigation.state.TranslatorScope
-import com.artemchep.keyguard.nativecrypto.NativeCryptoDesktopSmoke
-import com.artemchep.keyguard.nativecrypto.NativeCryptoException
 import com.artemchep.keyguard.platform.LeContext
 import com.artemchep.keyguard.platform.LocalWindowId
 import com.artemchep.keyguard.platform.WindowId
@@ -148,7 +147,6 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 import org.kodein.di.DI
@@ -158,26 +156,14 @@ import org.kodein.di.compose.rememberInstance
 import org.kodein.di.compose.withDI
 import org.kodein.di.direct
 import org.kodein.di.instance
-import java.nio.charset.StandardCharsets
-import java.nio.file.Files
-import java.nio.file.Path
-import java.nio.file.StandardOpenOption
 import java.util.Locale
-import javax.net.ssl.SSLContext
-import javax.net.ssl.SSLSocket
 import kotlin.system.exitProcess
 import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
 
-private const val NATIVE_CRYPTO_PACKAGED_SMOKE_ARGUMENT = "--native-crypto-packaged-smoke"
-private const val NATIVE_CRYPTO_PACKAGED_SMOKE_RESULT_PATH_ENV =
-    "KEYGUARD_NATIVE_CRYPTO_SMOKE_RESULT_PATH"
-private const val NATIVE_CRYPTO_PACKAGED_SMOKE_NONCE_ENV =
-    "KEYGUARD_NATIVE_CRYPTO_SMOKE_NONCE"
-
 fun main(args: Array<String>) {
-    if (NATIVE_CRYPTO_PACKAGED_SMOKE_ARGUMENT in args) {
-        runNativeCryptoPackagedSmoke()
+    if (NATIVE_PACKAGED_SMOKE_ARGUMENT in args) {
+        runNativePackagedSmoke()
         return
     }
     val instance = try {
@@ -194,66 +180,6 @@ fun main(args: Array<String>) {
         // can still access shared state; the OS reclaims the locks at process termination.
         instance.stop()
     }
-}
-
-private fun runNativeCryptoPackagedSmoke() {
-    val (result, tlsRuntime) = try {
-        verifyPackagedInstanceService()
-        NativeCryptoDesktopSmoke.runPackaged() to verifyPackagedDesktopTls()
-    } catch (e: NativeCryptoException) {
-        System.err.println(
-            "nativeCrypto packaged smoke failed: operation=${e.operation} code=${e.code}",
-        )
-        exitProcess(1)
-    } catch (_: Throwable) {
-        System.err.println("nativeCrypto packaged smoke failed: operation=packaged_smoke code=INTERNAL")
-        exitProcess(1)
-    }
-
-    val capabilities = result.capabilities.joinToString(",") { capability -> capability.name }
-    val success =
-        "nativeCrypto packaged smoke passed: abi=${result.abiVersion} " +
-            "capabilities=$capabilities sha256=PASS tls=$tlsRuntime instance=PASS"
-    publishNativeCryptoPackagedSmokeResult(success)
-    println(success)
-}
-
-private fun publishNativeCryptoPackagedSmokeResult(success: String) {
-    val resultPath = System.getenv(NATIVE_CRYPTO_PACKAGED_SMOKE_RESULT_PATH_ENV)
-        ?.takeIf(String::isNotBlank)
-        ?: return
-    val nonce = checkNotNull(
-        System.getenv(NATIVE_CRYPTO_PACKAGED_SMOKE_NONCE_ENV)
-            ?.takeIf(String::isNotBlank),
-    ) {
-        "$NATIVE_CRYPTO_PACKAGED_SMOKE_NONCE_ENV is required when publishing smoke evidence"
-    }
-    Files.writeString(
-        Path.of(resultPath),
-        "$nonce\n$success\n",
-        StandardCharsets.UTF_8,
-        StandardOpenOption.CREATE_NEW,
-        StandardOpenOption.WRITE,
-    )
-}
-
-private fun verifyPackagedDesktopTls(): String {
-    val jdkFeature = Runtime.version().feature()
-    check(jdkFeature == 21)
-
-    val defaultContext = SSLContext.getDefault()
-    val providerName = defaultContext.provider.name
-    check(providerName == "SunJSSE")
-
-    val okHttpClient = OkHttpClient.Builder().build()
-    val socketFactory = okHttpClient.sslSocketFactory
-    check(socketFactory.javaClass == defaultContext.socketFactory.javaClass)
-    val tlsSocket = socketFactory.createSocket() as SSLSocket
-    tlsSocket.use { socket ->
-        check("TLSv1.3" in socket.enabledProtocols)
-    }
-
-    return "OkHttp/$providerName/JDK$jdkFeature"
 }
 
 @OptIn(ExperimentalTime::class)

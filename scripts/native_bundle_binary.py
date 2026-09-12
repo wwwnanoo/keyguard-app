@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify nativeCrypto JNI or Apple C export surfaces.
+"""Read native binary exports and verify existing format-specific hardening.
 
 The inspector is read-only and supports ELF, Mach-O, PE, and static archives
 through the platform's `nm`, `llvm-nm`, or `dumpbin` tool.
@@ -7,23 +7,15 @@ through the platform's `nm`, `llvm-nm`, or `dumpbin` tool.
 
 from __future__ import annotations
 
-import argparse
 import os
 import re
 import shutil
 import struct
 import subprocess
-import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
 
 
-KEYGUARD_C_PREFIX = "keyguard_crypto_"
-KEYGUARD_JNI_PREFIX = (
-    "Java_com_artemchep_keyguard_nativecrypto_NativeCryptoJni_"
-)
-DEFAULT_JNI_SUFFIXES = frozenset({".so", ".dylib", ".dll"})
 DUMPBIN_EXPORT = re.compile(
     r"^\s*\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]+\s+(\S+)\s*$"
 )
@@ -236,6 +228,87 @@ def inspect_pe_hardening(path: Path, data: bytes) -> str:
     return "PE32+ DYNAMIC_BASE, NX_COMPAT"
 
 
+def read_pe_exports(path: Path, data: bytes) -> set[str]:
+    """Read named PE exports, including stripped DLLs with no COFF symbol table."""
+
+    label = str(path)
+    if len(data) < 64 or data[:2] != b"MZ":
+        raise InspectionError(f"{path}: not a PE image")
+    (pe_offset,) = unpack("<I", data, 0x3C, label)
+    if data[pe_offset:pe_offset + 4] != b"PE\0\0":
+        raise InspectionError(f"{path}: missing PE signature")
+    _, section_count, _, _, _, optional_size, _ = unpack("<HHIIIHH", data, pe_offset + 4, label)
+    optional = pe_offset + 24
+    (magic,) = unpack("<H", data, optional, label)
+    if magic != 0x20B or optional_size < 120:
+        raise InspectionError(f"{path}: missing PE32+ data directory")
+    sections_offset = optional + optional_size
+    if section_count == 0 or sections_offset + section_count * 40 > len(data):
+        raise InspectionError(f"{path}: truncated PE section table")
+    (header_size,) = unpack("<I", data, optional + 60, label)
+    if header_size > len(data):
+        raise InspectionError(f"{path}: truncated PE headers")
+    sections = []
+    for index in range(section_count):
+        virtual_size, virtual_address, raw_size, raw_offset = unpack(
+            "<IIII", data, sections_offset + index * 40 + 8, label,
+        )
+        sections.append((virtual_address, virtual_size, raw_size, raw_offset))
+
+    def file_offset(rva: int, size: int) -> int:
+        if rva < header_size and rva + size <= header_size:
+            return rva
+        matches = [section for section in sections if section[0] <= rva < section[0] + max(section[1], section[2])]
+        if len(matches) != 1:
+            raise InspectionError(f"{path}: unmapped/ambiguous PE export RVA {rva:#x}")
+        address, _, raw_size, raw_offset = matches[0]
+        relative = rva - address
+        offset = raw_offset + relative
+        if relative + size > raw_size or offset + size > len(data):
+            raise InspectionError(f"{path}: truncated PE export table at RVA {rva:#x}")
+        return offset
+
+    (directory_count,) = unpack("<I", data, optional + 108, label)
+    if directory_count == 0:
+        return set()
+    export_rva, export_size = unpack("<II", data, optional + 112, label)
+    if export_rva == 0 and export_size == 0:
+        return set()
+    if export_rva == 0 or export_size < 40:
+        raise InspectionError(f"{path}: malformed PE export directory")
+    export_offset = file_offset(export_rva, export_size)
+    function_count, name_count, functions_rva, names_rva, ordinals_rva = unpack(
+        "<IIIII", data, export_offset + 20, label,
+    )
+    if (function_count and not functions_rva) or (name_count and (not names_rva or not ordinals_rva)):
+        raise InspectionError(f"{path}: missing PE export table")
+    # Validate complete tables before looping, bounding work by artifact size.
+    functions = file_offset(functions_rva, function_count * 4) if function_count else 0
+    names = file_offset(names_rva, name_count * 4) if name_count else 0
+    ordinals = file_offset(ordinals_rva, name_count * 2) if name_count else 0
+    symbols = set()
+    for index in range(name_count):
+        (ordinal,) = unpack("<H", data, ordinals + index * 2, label)
+        if ordinal >= function_count:
+            raise InspectionError(f"{path}: PE export references an invalid ordinal")
+        if unpack("<I", data, functions + ordinal * 4, label)[0] == 0:
+            raise InspectionError(f"{path}: named PE export has no function")
+        (name_rva,) = unpack("<I", data, names + index * 4, label)
+        offset = file_offset(name_rva, 1)
+        end = data.find(b"\0", offset, min(len(data), offset + 65536))
+        if end < 0:
+            raise InspectionError(f"{path}: unterminated PE export name")
+        file_offset(name_rva, end - offset + 1)
+        try:
+            symbol = data[offset:end].decode("ascii")
+        except UnicodeError as error:
+            raise InspectionError(f"{path}: non-ASCII PE export name") from error
+        if not symbol:
+            raise InspectionError(f"{path}: empty PE export name")
+        symbols.add(normalize_symbol(symbol))
+    return symbols
+
+
 def inspect_hardening(path: Path) -> str:
     """Inspect final-image hardening where the library format carries it."""
 
@@ -276,16 +349,24 @@ def load_policy(path: Path) -> ExportPolicy:
     return ExportPolicy(frozenset(exact), tuple(prefixes))
 
 
-def candidate_commands(path: Path) -> list[list[str]]:
+def candidate_commands(path: Path, suffix: str | None = None) -> list[list[str]]:
     """Return symbol-reader commands appropriate for a library suffix."""
 
-    suffix = path.suffix.lower()
+    suffix = suffix or path.suffix.lower()
     if suffix == ".so":
         return [
             ["llvm-nm", "--defined-only", "--extern-only", "--dynamic", str(path)],
             ["nm", "-D", "--defined-only", str(path)],
         ]
-    if suffix in {".dylib", ".a"}:
+    if suffix == ".a":
+        # Read native object symbols, not embedded Rust LLVM bitcode. Xcode's
+        # LLVM version can lag the Rust compiler that produced the archive.
+        return [
+            ["llvm-nm", "--no-llvm-bc", "--defined-only", "--extern-only", str(path)],
+            ["nm", "--no-llvm-bc", "-gU", str(path)],
+            ["nm", "-gU", str(path)],
+        ]
+    if suffix == ".dylib":
         return [
             ["llvm-nm", "--defined-only", "--extern-only", str(path)],
             ["nm", "-gU", str(path)],
@@ -298,13 +379,13 @@ def candidate_commands(path: Path) -> list[list[str]]:
     raise InspectionError(f"unsupported desktop library type: {path}")
 
 
-def read_symbol_output(path: Path) -> tuple[str, str]:
+def read_symbol_output(path: Path, suffix: str | None = None) -> tuple[str, str]:
     """Run the first available symbol reader and return its name/output."""
 
     failures: list[str] = []
     environment = dict(os.environ)
     environment["LC_ALL"] = "C"
-    for command in candidate_commands(path):
+    for command in candidate_commands(path, suffix):
         executable = shutil.which(command[0])
         if executable is None:
             continue
@@ -315,6 +396,7 @@ def read_symbol_output(path: Path) -> tuple[str, str]:
             capture_output=True,
             text=True,
             env=environment,
+            timeout=30,
         )
         if result.returncode == 0:
             return Path(executable).name, result.stdout
@@ -329,7 +411,7 @@ def normalize_symbol(symbol: str) -> str:
     if symbol.startswith("__imp_"):
         symbol = symbol.removeprefix("__imp_")
     if symbol.startswith("_") and symbol[1:].startswith(
-        (KEYGUARD_C_PREFIX, "Java_", "JNI_")
+        ("keyguard_", "Java_", "JNI_")
     ):
         symbol = symbol[1:]
     return re.sub(r"@\d+$", "", symbol)
@@ -349,152 +431,3 @@ def parse_symbols(output: str, reader: str = "nm") -> set[str]:
         if len(fields) >= 3 and len(fields[-2]) == 1 and fields[-2].isalpha():
             symbols.add(normalize_symbol(fields[-1]))
     return symbols
-
-
-def inspect_library(
-    path: Path,
-    policy: ExportPolicy,
-    allowed_suffixes: frozenset[str],
-    api_prefix: str,
-) -> tuple[str, set[str], str]:
-    """Inspect one library and return the reader and relevant exports."""
-
-    if not path.is_file():
-        raise InspectionError(f"desktop library does not exist: {path}")
-    if path.suffix.lower() not in allowed_suffixes:
-        raise InspectionError(f"unsupported native library type: {path}")
-    if path.stat().st_size == 0:
-        raise InspectionError(f"desktop library is empty: {path}")
-
-    reader, output = read_symbol_output(path)
-    symbols = parse_symbols(output, reader)
-    missing_exact = sorted(policy.exact - symbols)
-    missing_prefixes = [
-        prefix for prefix in policy.prefixes if not any(s.startswith(prefix) for s in symbols)
-    ]
-    if missing_exact:
-        raise InspectionError(f"{path}: missing exports: {', '.join(missing_exact)}")
-    if missing_prefixes:
-        raise InspectionError(
-            f"{path}: no export matches prefixes: {', '.join(missing_prefixes)}"
-        )
-
-    unexpected_api_exports = sorted(
-        symbol
-        for symbol in symbols
-        if symbol.startswith(api_prefix) and symbol not in policy.exact
-    )
-    if unexpected_api_exports:
-        raise InspectionError(
-            f"{path}: unreviewed API exports: {', '.join(unexpected_api_exports)}"
-        )
-
-    relevant = {
-        symbol
-        for symbol in symbols
-        if symbol in policy.exact
-        or any(symbol.startswith(prefix) for prefix in policy.prefixes)
-    }
-    return reader, relevant, inspect_hardening(path)
-
-
-def collect_binaries(
-    paths: Sequence[Path], allowed_suffixes: frozenset[str]
-) -> list[Path]:
-    """Resolve files and recursively discover native libraries in directories."""
-
-    binaries: list[Path] = []
-    for path in paths:
-        if not path.exists():
-            raise InspectionError(f"artifact does not exist: {path}")
-        if path.is_dir():
-            binaries.extend(
-                candidate
-                for candidate in sorted(path.rglob("*"))
-                if candidate.is_file()
-                and candidate.suffix.lower() in allowed_suffixes
-                and "keyguard_crypto" in candidate.name
-                and not set(candidate.parts).intersection(
-                    {"arm64-v8a", "armeabi-v7a", "x86", "x86_64"}
-                )
-                and "jniLibs" not in candidate.parts
-                and "android" not in candidate.parts
-            )
-        else:
-            binaries.append(path)
-    unique = list(dict.fromkeys(path.resolve() for path in binaries))
-    if not unique:
-        raise InspectionError("no nativeCrypto desktop libraries found")
-    return unique
-
-
-def parse_arguments(argv: Sequence[str]) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("artifacts", nargs="*", type=Path)
-    parser.add_argument(
-        "--file-list",
-        type=Path,
-        help="newline-delimited additional libraries (for CI discovery)",
-    )
-    parser.add_argument(
-        "--export-policy",
-        type=Path,
-        default=Path(".github/native-crypto-jni-exports.txt"),
-    )
-    parser.add_argument(
-        "--api-prefix",
-        default=KEYGUARD_JNI_PREFIX,
-        help="reject unreviewed exported symbols in this API family",
-    )
-    parser.add_argument(
-        "--suffix",
-        action="append",
-        dest="suffixes",
-        help="library suffix to discover; repeat to override JNI defaults",
-    )
-    return parser.parse_args(argv)
-
-
-def main(argv: Sequence[str] | None = None) -> int:
-    args = parse_arguments(sys.argv[1:] if argv is None else argv)
-    paths = list(args.artifacts)
-    if args.file_list is not None:
-        if not args.file_list.is_file():
-            print(f"ERROR: file list does not exist: {args.file_list}", file=sys.stderr)
-            return 2
-        paths.extend(
-            Path(line.strip())
-            for line in args.file_list.read_text(encoding="utf-8").splitlines()
-            if line.strip() and not line.lstrip().startswith("#")
-        )
-    if not paths:
-        print("ERROR: no desktop artifacts supplied", file=sys.stderr)
-        return 2
-
-    try:
-        policy = load_policy(args.export_policy)
-        allowed_suffixes = frozenset(
-            suffix if suffix.startswith(".") else f".{suffix}"
-            for suffix in (args.suffixes or DEFAULT_JNI_SUFFIXES)
-        )
-        binaries = collect_binaries(paths, allowed_suffixes)
-        for binary in binaries:
-            reader, exports, hardening = inspect_library(
-                binary,
-                policy,
-                allowed_suffixes,
-                args.api_prefix,
-            )
-            print(f"OK {binary} ({reader}; {hardening})")
-            for symbol in sorted(exports):
-                print(f"  {symbol}")
-    except (InspectionError, OSError) as error:
-        print(f"ERROR: {error}", file=sys.stderr)
-        return 1
-
-    print(f"Validated exports and applicable hardening for {len(binaries)} libraries.")
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

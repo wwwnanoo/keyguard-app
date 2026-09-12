@@ -65,6 +65,7 @@ class RustMultiplatformLibraryFunctionalTest {
                         check(!keyguardRust.androidCmakeToolchainFile.isPresent)
                         listOf("Arm64V8a", "ArmeabiV7a", "X86", "X8664").forEach { suffix ->
                             val cargo = tasks.named<CargoBuildTask>("cargoBuildNative${moduleTaskName}Android" + suffix).get()
+                            check(cargo.offline.get() == providers.gradleProperty("expected${moduleTaskName}Offline").get().toBoolean())
                             check(cargo.sourceFiles.files == setOf(file("rust/Cargo.toml"))) {
                                 "Unexpected default Android source inputs for $module: " + cargo.sourceFiles.files
                             }
@@ -104,7 +105,7 @@ class RustMultiplatformLibraryFunctionalTest {
                     cargoNames.forEach { name ->
                         val cargo = tasks.named<CargoBuildTask>(name).get()
                         check(cargo.sourceFiles.files.containsAll(listOf(file("schema/api.proto"), file("thirdParty/rust/fork/lib.rs"))))
-                        check(cargo.offline.get())
+                        check(cargo.offline.get() == providers.gradleProperty("expectedCryptoOffline").get().toBoolean())
                         check(cargo.cargoArguments.get().contains("--locked"))
                         val packageName = if (name in appleSuffixes.map { "cargoBuildNativeCrypto" + it }) {
                             "keyguard-crypto-c"
@@ -141,7 +142,12 @@ class RustMultiplatformLibraryFunctionalTest {
             "verifyNativeModel",
             ":io:verifyDefaultNativeModel",
             ":zxcvbn:verifyDefaultNativeModel",
-            "-Pkeyguard.nativeCrypto.cargoOffline=true",
+            "-Pkeyguard.nativeCargo.cargoOffline=true",
+            "-Pkeyguard.nativeCrypto.cargoOffline=false",
+            "-Pkeyguard.nativeIo.cargoOffline=false",
+            "-PexpectedCryptoOffline=false",
+            "-PexpectedIoOffline=false",
+            "-PexpectedZxcvbnOffline=true",
             "--no-configuration-cache",
         )
             .withEnvironment(System.getenv() + ("ANDROID_SDK_ROOT" to sdk.absolutePath))

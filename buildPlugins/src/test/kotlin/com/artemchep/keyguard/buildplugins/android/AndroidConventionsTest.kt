@@ -44,12 +44,9 @@ class AndroidConventionsTest {
         writeModule(projectDir, "library", library())
         writeModule(projectDir, "benchmark", benchmark())
         writeModule(projectDir, "client", client())
-        listOf(emptyList(), listOf("-Pkeyguard.nativeCrypto.minifiedSmoke=true")).forEach { properties ->
-            val result = fixtureGradleRunner(projectDir, "verifyConventions", *properties.toTypedArray()).build()
-
-            listOf("phone", "wear", "library", "benchmark", "client").forEach { module ->
-                assertEquals(TaskOutcome.SUCCESS, result.task(":$module:verifyConventions")?.outcome)
-            }
+        val result = fixtureGradleRunner(projectDir, "verifyConventions").build()
+        listOf("phone", "wear", "library", "benchmark", "client").forEach { module ->
+            assertEquals(TaskOutcome.SUCCESS, result.task(":$module:verifyConventions")?.outcome)
         }
     }
 
@@ -80,8 +77,6 @@ class AndroidConventionsTest {
             id("com.android.application")
             id("keyguard.android-application")
         }
-        val smoke = "$name" == "phone" && providers.gradleProperty("keyguard.nativeCrypto.minifiedSmoke")
-            .map(String::toBoolean).getOrElse(false)
         android {
             configureKeyguardApplication(project)
             namespace = "test.$name"
@@ -90,15 +85,6 @@ class AndroidConventionsTest {
                 minSdk = $minSdk
                 versionCode = 42
                 versionName = "1.2.3"
-            }
-            if (smoke) {
-                testBuildType = "nativeCryptoSmokeRelease"
-                buildTypes.create("nativeCryptoSmokeRelease") {
-                    initWith(buildTypes.getByName("release"))
-                    signingConfig = signingConfigs.getByName("debug")
-                    matchingFallbacks += "release"
-                    proguardFile("native-crypto-smoke-app-rules.pro")
-                }
             }
         }
         val applicationVariants = mutableListOf<Variant>()
@@ -121,7 +107,7 @@ class AndroidConventionsTest {
                 check(configurations.getByName("androidTestUtil").dependencies.single().name == "orchestrator")
                 check(android.flavorDimensions == listOf("accountManagement"))
                 check(android.productFlavors.names == setOf("none", "playStore"))
-                check(applicationVariants.size == if (smoke) 6 else 4)
+                check(applicationVariants.size == 4)
                 applicationVariants.forEach { variant ->
                     val flavor = variant.productFlavors.single { it.first == "accountManagement" }.second
                     val analytics = checkNotNull(variant.buildConfigFields).get().getValue("ANALYTICS")
@@ -147,14 +133,7 @@ class AndroidConventionsTest {
                     file("proguard-rules.pro"),
                 ))
                 check(android.buildTypes.getByName("debug").applicationIdSuffix == ".debug")
-                if (smoke) {
-                    val smokeType = android.buildTypes.getByName("nativeCryptoSmokeRelease")
-                    check(smokeType.signingConfig == debugSigning)
-                    check(smokeType.isMinifyEnabled && smokeType.isShrinkResources)
-                    check(smokeType.proguardFiles.containsAll(release.proguardFiles))
-                    check(smokeType.matchingFallbacks == listOf("release"))
-                }
-                check(android.testBuildType == if (smoke) "nativeCryptoSmokeRelease" else "debug")
+                check(android.testBuildType == "debug")
                 println("Verified $name")
             }
         }
