@@ -1346,20 +1346,7 @@ class NativeCryptoClientTest {
                 ),
                 54,
             ),
-            Triple(
-                NativeCryptoCapability.OPENPGP_USER_ID_REPLACEMENT,
-                OpenPgpUserIdReplacementOperationProto(
-                    OpenPgpUserIdReplacementRequestProto(
-                        privateKey = byteArrayOf(1),
-                        publicKey = byteArrayOf(2),
-                        expectedPrimaryFingerprint = "A".repeat(40),
-                        oldIdentityId = "v1:${"B".repeat(64)}",
-                        newUserId = "Alice <alice@example.invalid>",
-                        referenceTimeEpochSeconds = 1L,
-                    ),
-                ),
-                55,
-            ),
+            userIdReplacementProtocolExtension(),
             Triple(
                 NativeCryptoCapability.OPENPGP_CERTIFICATE_MATERIAL_RECONCILE,
                 OpenPgpCertificateMaterialReconcileOperationProto(
@@ -1395,6 +1382,22 @@ class NativeCryptoClientTest {
                 OpenPgpStreamDrainOperationProto(OpenPgpStreamDrainRequestProto(42L)),
                 59,
             ),
+        )
+
+    private fun userIdReplacementProtocolExtension() =
+        Triple(
+            NativeCryptoCapability.OPENPGP_USER_ID_REPLACEMENT,
+            OpenPgpUserIdReplacementOperationProto(
+                OpenPgpUserIdReplacementRequestProto(
+                    privateKey = byteArrayOf(1),
+                    publicKey = byteArrayOf(2),
+                    expectedPrimaryFingerprint = "A".repeat(40),
+                    oldIdentityId = "v1:${"B".repeat(64)}",
+                    newUserId = "Alice <alice@example.invalid>",
+                    referenceTimeEpochSeconds = 1L,
+                ),
+            ),
+            55,
         )
 
     @Test

@@ -126,14 +126,8 @@ class DecoderHeaderRetentionTest {
             assertFalse(value is TeeBufferedStream, "Body stream retains its header-capturing tee")
             if (value is KotlinxSourceAdapter) {
                 reachedInput = true
-                return
             }
-            if (value is Buffer) return
-            val name = value.javaClass.name
-            if (!name.startsWith("app.keemobile.kotpass.") &&
-                !name.startsWith("okio.") &&
-                !name.startsWith("nl.adaptivity.xmlutil.")
-            ) return
+            if (value is KotlinxSourceAdapter || value is Buffer || !isStreamWrapper(value)) return
             var type: Class<*>? = value.javaClass
             while (type != null && !type.name.startsWith("java.")) {
                 for (field in type.declaredFields) {
@@ -147,6 +141,13 @@ class DecoderHeaderRetentionTest {
         inspect(source)
         // Prevent a changed wrapper from silently making this probe vacuous.
         assertTrue(reachedInput, "Could not follow the body stream back to the encoded input")
+    }
+
+    private fun isStreamWrapper(value: Any): Boolean {
+        val name = value.javaClass.name
+        return name.startsWith("app.keemobile.kotpass.") ||
+            name.startsWith("okio.") ||
+            name.startsWith("nl.adaptivity.xmlutil.")
     }
 
     private companion object {

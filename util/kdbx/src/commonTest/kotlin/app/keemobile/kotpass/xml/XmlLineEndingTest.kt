@@ -58,18 +58,18 @@ class XmlLineEndingTest {
                     val chunk = reader.readStreamingTextChunk(1)
                     if (chunk != null) {
                         result.append(chunk)
-                        continue
-                    }
-                    when (reader.next()) {
-                        EventType.TEXT,
-                        EventType.CDSECT,
-                        EventType.ENTITY_REF,
-                        EventType.IGNORABLE_WHITESPACE,
-                        -> result.append(reader.text)
+                    } else {
+                        when (reader.next()) {
+                            EventType.TEXT,
+                            EventType.CDSECT,
+                            EventType.ENTITY_REF,
+                            EventType.IGNORABLE_WHITESPACE,
+                            -> result.append(reader.text)
 
-                        EventType.END_ELEMENT -> break
-                        EventType.END_DOCUMENT -> error("Unexpected end of document")
-                        else -> Unit
+                            EventType.END_ELEMENT -> break
+                            EventType.END_DOCUMENT -> error("Unexpected end of document")
+                            else -> Unit
+                        }
                     }
                 }
                 assertEquals(normalized(version) + referencedValue + normalized(version), result.toString())

@@ -359,19 +359,7 @@ class HubNegotiateTest {
                             headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
                         )
                         else -> respond(
-                            content = """
-                                {
-                                  "negotiateVersion": 1,
-                                  "connectionId": "public-id",
-                                  "connectionToken": "secret-token",
-                                  "availableTransports": [
-                                    {
-                                      "transport": "WebSockets",
-                                      "transferFormats": ["Binary"]
-                                    }
-                                  ]
-                                }
-                            """.trimIndent(),
+                            content = redirectedNegotiationResponse(),
                             headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
                         )
                     }
@@ -520,6 +508,20 @@ class HubNegotiateTest {
         val baseUrl: String,
         val negotiateUrl: String,
     )
+
+    private fun redirectedNegotiationResponse(): String = """
+        {
+          "negotiateVersion": 1,
+          "connectionId": "public-id",
+          "connectionToken": "secret-token",
+          "availableTransports": [
+            {
+              "transport": "WebSockets",
+              "transferFormats": ["Binary"]
+            }
+          ]
+        }
+    """.trimIndent()
 
     private fun successfulNegotiationResponse(): String = """
         {

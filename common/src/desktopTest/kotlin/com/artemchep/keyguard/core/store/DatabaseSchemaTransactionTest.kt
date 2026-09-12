@@ -104,7 +104,13 @@ class DatabaseSchemaTransactionTest {
         open().use { driver ->
             assertEquals(DatabaseExposed.Schema.version, driver.version())
             assertEquals(
-                listOf("gpgAgentKeyInfo", "gpgCertificationAuthority", "gpgPublicKey", "pendingUsageHistory", "sshAgentPublicKey"),
+                listOf(
+                    "gpgAgentKeyInfo",
+                    "gpgCertificationAuthority",
+                    "gpgPublicKey",
+                    "pendingUsageHistory",
+                    "sshAgentPublicKey",
+                ),
                 driver.tables().sorted(),
             )
         }
@@ -182,92 +188,92 @@ class DatabaseSchemaTransactionTest {
             assertEquals(1L, it.version())
         }
     }
+}
 
-    private fun assertOriginalAndRetry(open: () -> SqlDriver) {
-        open().use { driver ->
-            assertEquals(1L, driver.version())
-            assertEquals(listOf("original"), driver.strings("SELECT value FROM entry"))
-            assertEquals(listOf("value"), driver.strings("SELECT name FROM pragma_table_info('entry')"))
-            driver.initializeSchema(
-                schema(2, migrate = ::upgrade),
-                AfterVersion(1) { it.sql("UPDATE entry SET value = 'callback'") },
+private fun assertOriginalAndRetry(open: () -> SqlDriver) {
+    open().use { driver ->
+        assertEquals(1L, driver.version())
+        assertEquals(listOf("original"), driver.strings("SELECT value FROM entry"))
+        assertEquals(listOf("value"), driver.strings("SELECT name FROM pragma_table_info('entry')"))
+        driver.initializeSchema(
+            schema(2, migrate = ::upgrade),
+            AfterVersion(1) { it.sql("UPDATE entry SET value = 'callback'") },
+        )
+    }
+    open().use { driver ->
+        assertEquals(2L, driver.version())
+        assertEquals(listOf("callback"), driver.strings("SELECT value FROM entry"))
+        assertEquals(listOf("value", "extra"), driver.strings("SELECT name FROM pragma_table_info('entry')"))
+    }
+}
+
+private fun upgrade(driver: SqlDriver) {
+    driver.sql("ALTER TABLE entry ADD COLUMN extra TEXT")
+    driver.sql("UPDATE entry SET value = 'changed'")
+}
+
+private fun schema(
+    version: Long,
+    create: (SqlDriver) -> Unit = {
+        it.sql("CREATE TABLE entry (value TEXT NOT NULL)")
+        it.sql("INSERT INTO entry VALUES ('original')")
+    },
+    migrate: (SqlDriver) -> Unit = {},
+): SqlSchema<QueryResult.Value<Unit>> = object : SqlSchema<QueryResult.Value<Unit>> {
+    override val version = version
+
+    override fun create(driver: SqlDriver): QueryResult.Value<Unit> {
+        create.invoke(driver)
+        return QueryResult.Unit
+    }
+
+    override fun migrate(
+        driver: SqlDriver,
+        oldVersion: Long,
+        newVersion: Long,
+        vararg callbacks: AfterVersion,
+    ): QueryResult.Value<Unit> {
+        migrate.invoke(driver)
+        callbacks.filter { it.afterVersion in oldVersion until newVersion }
+            .forEach { it.block(driver) }
+        return QueryResult.Unit
+    }
+}
+
+private fun withDatabase(block: (() -> SqlDriver) -> Unit) {
+    val directory = Files.createTempDirectory("keyguard-migration-test").toFile()
+    try {
+        val file = directory.resolve("vault.db")
+        block {
+            JdbcSqliteDriver(
+                url = "jdbc:sqlite:file:${file.absolutePath}",
+                properties = SQLiteMCSqlCipherConfig.getDefault()
+                    .withRawUnsaltedKey(ByteArray(32) { it.toByte() })
+                    .build()
+                    .toProperties()
+                    .apply { put("foreign_keys", "true") },
             )
         }
-        open().use { driver ->
-            assertEquals(2L, driver.version())
-            assertEquals(listOf("callback"), driver.strings("SELECT value FROM entry"))
-            assertEquals(listOf("value", "extra"), driver.strings("SELECT name FROM pragma_table_info('entry')"))
-        }
+    } finally {
+        directory.deleteRecursively()
     }
-
-    private fun upgrade(driver: SqlDriver) {
-        driver.sql("ALTER TABLE entry ADD COLUMN extra TEXT")
-        driver.sql("UPDATE entry SET value = 'changed'")
-    }
-
-    private fun schema(
-        version: Long,
-        create: (SqlDriver) -> Unit = {
-            it.sql("CREATE TABLE entry (value TEXT NOT NULL)")
-            it.sql("INSERT INTO entry VALUES ('original')")
-        },
-        migrate: (SqlDriver) -> Unit = {},
-    ): SqlSchema<QueryResult.Value<Unit>> = object : SqlSchema<QueryResult.Value<Unit>> {
-        override val version = version
-
-        override fun create(driver: SqlDriver): QueryResult.Value<Unit> {
-            create.invoke(driver)
-            return QueryResult.Unit
-        }
-
-        override fun migrate(
-            driver: SqlDriver,
-            oldVersion: Long,
-            newVersion: Long,
-            vararg callbacks: AfterVersion,
-        ): QueryResult.Value<Unit> {
-            migrate.invoke(driver)
-            callbacks.filter { it.afterVersion in oldVersion until newVersion }
-                .forEach { it.block(driver) }
-            return QueryResult.Unit
-        }
-    }
-
-    private fun withDatabase(block: (() -> SqlDriver) -> Unit) {
-        val directory = Files.createTempDirectory("keyguard-migration-test").toFile()
-        try {
-            val file = directory.resolve("vault.db")
-            block {
-                JdbcSqliteDriver(
-                    url = "jdbc:sqlite:file:${file.absolutePath}",
-                    properties = SQLiteMCSqlCipherConfig.getDefault()
-                        .withRawUnsaltedKey(ByteArray(32) { it.toByte() })
-                        .build()
-                        .toProperties()
-                        .apply { put("foreign_keys", "true") },
-                )
-            }
-        } finally {
-            directory.deleteRecursively()
-        }
-    }
-
-    private fun SqlDriver.sql(sql: String) = execute(null, sql, 0).value
-
-    private fun SqlDriver.version() = strings("PRAGMA user_version").single().toLong()
-
-    private fun SqlDriver.tables() = strings("SELECT name FROM sqlite_master WHERE type = 'table'")
-
-    private fun SqlDriver.strings(sql: String): List<String> = executeQuery(
-        null,
-        sql,
-        { cursor ->
-            QueryResult.Value(buildList {
-                while (cursor.next().value) add(requireNotNull(cursor.getString(0)))
-            })
-        },
-        0,
-    ).value
-
-    private class MigrationFailure : RuntimeException()
 }
+
+private fun SqlDriver.sql(sql: String) = execute(null, sql, 0).value
+
+private fun SqlDriver.version() = strings("PRAGMA user_version").single().toLong()
+
+private fun SqlDriver.tables() = strings("SELECT name FROM sqlite_master WHERE type = 'table'")
+
+private fun SqlDriver.strings(sql: String): List<String> = executeQuery(
+    null,
+    sql,
+    { cursor ->
+        QueryResult.Value(buildList {
+            while (cursor.next().value) add(requireNotNull(cursor.getString(0)))
+        })
+    },
+    0,
+).value
+
+private class MigrationFailure : RuntimeException()

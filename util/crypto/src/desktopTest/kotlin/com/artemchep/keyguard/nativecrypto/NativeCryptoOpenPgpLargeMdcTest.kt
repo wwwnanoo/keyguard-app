@@ -48,18 +48,7 @@ class NativeCryptoOpenPgpLargeMdcTest {
                         assertTrue(session.update(ciphertext, offset, count).isEmpty())
                         offset += count
                     }
-                    var total = 0
-                    while (true) {
-                        val output = session.drain()
-                        if (output.isEmpty()) break
-                        try {
-                            assertTrue(output.size <= input.size)
-                            assertTrue(output.indices.all { output[it] == input[(total + it) % input.size] })
-                            total += output.size
-                        } finally {
-                            output.fill(0)
-                        }
-                    }
+                    val total = session.assertBoundedDrain(input)
                     val final = session.finish()
                     assertTrue(final.data.isEmpty())
                     assertEquals(size, total)
@@ -80,6 +69,22 @@ class NativeCryptoOpenPgpLargeMdcTest {
             publicKey.fill(0)
             directory.toFile().deleteRecursively()
         }
+    }
+
+    private fun NativeOpenPgpDecryptionSession.assertBoundedDrain(input: ByteArray): Int {
+        var total = 0
+        while (true) {
+            val output = drain()
+            if (output.isEmpty()) break
+            try {
+                assertTrue(output.size <= input.size)
+                assertTrue(output.indices.all { output[it] == input[(total + it) % input.size] })
+                total += output.size
+            } finally {
+                output.fill(0)
+            }
+        }
+        return total
     }
 
     private fun fixture(name: String): ByteArray {

@@ -137,7 +137,8 @@ class UnicodeSinkBoundaryTest {
                 val fields = reopened.content.group.entries.single().fields
                 assertTrue(fields.password?.content == value, "Protected value changed: v$version $compression")
                 if (fields.notes?.content != value) {
-                    failures += "v$version $compression: notes reopened, but contain ${fields.notes?.content?.count { it == '?' }} question marks"
+                    val questionMarks = fields.notes?.content?.count { it == '?' }
+                    failures += "v$version $compression: notes reopened, but contain $questionMarks question marks"
                 }
             }
         }

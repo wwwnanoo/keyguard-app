@@ -70,12 +70,14 @@ class DatabaseSqlManagerInFileJvm<Database>(
             key = masterKey.byteArray,
         )
 
+        var initialized = false
         val database = try {
             driver.initializeSchema(databaseSchema, *callbacks)
-            databaseFactory(driver)
-        } catch (e: Throwable) {
-            driver.close()
-            throw e
+            databaseFactory(driver).also { initialized = true }
+        } finally {
+            if (!initialized) {
+                driver.close()
+            }
         }
         return object : DatabaseSqlHelper<Database> {
             override val driver: SqlDriver get() = driver

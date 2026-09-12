@@ -41,7 +41,7 @@ import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
-class HubConnectionLifecycleTest {
+class HubConnectionCleanupTest {
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun `cancelling while disconnecting event is blocked completes transport cleanup`() = runTest {
@@ -238,7 +238,9 @@ class HubConnectionLifecycleTest {
             close(client, session)
         }
     }
+}
 
+class HubConnectionLifecycleTest {
     @Test
     fun `connection events reach connected state`() = runTest {
         val session = FakeWebSocketSession()
@@ -718,108 +720,108 @@ class HubConnectionLifecycleTest {
         assertTrue(client.coroutineContext[Job]?.isActive == true)
         close(client, session)
     }
+}
 
-    private fun CoroutineScope.launchConnection(
-        connection: HubConnection,
-        events: SendChannel<HubConnectionEvent>,
-    ): Job = launch {
-        connection.events()
-            .collect { event ->
-                events.send(event)
-            }
-    }
+private fun CoroutineScope.launchConnection(
+    connection: HubConnection,
+    events: SendChannel<HubConnectionEvent>,
+): Job = launch {
+    connection.events()
+        .collect { event ->
+            events.send(event)
+        }
+}
 
-    private suspend fun ReceiveChannel<HubConnectionEvent>.awaitState(
-        state: HubConnectionState,
-    ): HubConnectionEvent.StateChanged {
-        while (true) {
-            when (val event = receive()) {
-                is HubConnectionEvent.StateChanged -> {
-                    if (event.state == state) {
-                        return event
-                    }
-                    if (event.state == HubConnectionState.DISCONNECTED) {
-                        error("Disconnected while waiting for $state: ${event.reason}")
-                    }
+private suspend fun ReceiveChannel<HubConnectionEvent>.awaitState(
+    state: HubConnectionState,
+): HubConnectionEvent.StateChanged {
+    while (true) {
+        when (val event = receive()) {
+            is HubConnectionEvent.StateChanged -> {
+                if (event.state == state) {
+                    return event
                 }
-
-                is HubConnectionEvent.InvocationReceived -> Unit
+                if (event.state == HubConnectionState.DISCONNECTED) {
+                    error("Disconnected while waiting for $state: ${event.reason}")
+                }
             }
+
+            is HubConnectionEvent.InvocationReceived -> Unit
         }
     }
+}
 
-    private suspend fun ReceiveChannel<HubConnectionEvent>.awaitInvocation(): HubMessage.Invocation {
-        while (true) {
-            when (val event = receive()) {
-                is HubConnectionEvent.InvocationReceived -> return event.invocation
-                is HubConnectionEvent.StateChanged -> Unit
-            }
+private suspend fun ReceiveChannel<HubConnectionEvent>.awaitInvocation(): HubMessage.Invocation {
+    while (true) {
+        when (val event = receive()) {
+            is HubConnectionEvent.InvocationReceived -> return event.invocation
+            is HubConnectionEvent.StateChanged -> Unit
         }
     }
+}
 
-    private fun testConnection(
-        client: HttpClient,
-        session: FakeWebSocketSession,
-        logger: Logger = Logger.Empty,
-        keepAliveInterval: Duration = 1.minutes,
-        handshakeResponseTimeout: Duration = 5.seconds,
-        closeTimeout: Duration = 5.seconds,
-    ): HubConnection = DefaultHubConnection(
-        testOptions(
-            client = client,
-            session = session,
-            logger = logger,
-            keepAliveInterval = keepAliveInterval,
-            handshakeResponseTimeout = handshakeResponseTimeout,
-            closeTimeout = closeTimeout,
-        ),
-    )
+private fun testConnection(
+    client: HttpClient,
+    session: FakeWebSocketSession,
+    logger: Logger = Logger.Empty,
+    keepAliveInterval: Duration = 1.minutes,
+    handshakeResponseTimeout: Duration = 5.seconds,
+    closeTimeout: Duration = 5.seconds,
+): HubConnection = DefaultHubConnection(
+    testOptions(
+        client = client,
+        session = session,
+        logger = logger,
+        keepAliveInterval = keepAliveInterval,
+        handshakeResponseTimeout = handshakeResponseTimeout,
+        closeTimeout = closeTimeout,
+    ),
+)
 
-    private fun testOptions(
-        client: HttpClient,
-        session: FakeWebSocketSession,
-        logger: Logger = Logger.Empty,
-        keepAliveInterval: Duration = 1.minutes,
-        handshakeResponseTimeout: Duration = 5.seconds,
-        closeTimeout: Duration = 5.seconds,
-    ): HubConnectionOptions {
-        val config = HubConnectionConfig().apply {
-            this.skipNegotiate = true
-            this.handshakeResponseTimeout = handshakeResponseTimeout
-            this.serverTimeout = 1.minutes
-            this.keepAliveInterval = keepAliveInterval
-            this.closeTimeout = closeTimeout
-            this.logger = logger
-        }
-        return HubConnectionOptions
-            .create(
-                url = "https://example.com/hub",
-                httpClient = client,
-                config = config,
-            )
-            .copy(
-                webSocketSessionConnector = { _, url, _ ->
-                    session.connected.complete(url)
-                    session
-                },
-            )
+private fun testOptions(
+    client: HttpClient,
+    session: FakeWebSocketSession,
+    logger: Logger = Logger.Empty,
+    keepAliveInterval: Duration = 1.minutes,
+    handshakeResponseTimeout: Duration = 5.seconds,
+    closeTimeout: Duration = 5.seconds,
+): HubConnectionOptions {
+    val config = HubConnectionConfig().apply {
+        this.skipNegotiate = true
+        this.handshakeResponseTimeout = handshakeResponseTimeout
+        this.serverTimeout = 1.minutes
+        this.keepAliveInterval = keepAliveInterval
+        this.closeTimeout = closeTimeout
+        this.logger = logger
     }
+    return HubConnectionOptions
+        .create(
+            url = "https://example.com/hub",
+            httpClient = client,
+            config = config,
+        )
+        .copy(
+            webSocketSessionConnector = { _, url, _ ->
+                session.connected.complete(url)
+                session
+            },
+        )
+}
 
-    private fun testHttpClient() = HttpClient(
-        MockEngine { request ->
-            error("Unexpected HTTP request: ${request.url}")
-        },
-    ) {
-        install(HttpTimeout)
-    }
+private fun testHttpClient() = HttpClient(
+    MockEngine { request ->
+        error("Unexpected HTTP request: ${request.url}")
+    },
+) {
+    install(HttpTimeout)
+}
 
-    private fun close(
-        client: HttpClient,
-        session: FakeWebSocketSession,
-    ) {
-        client.close()
-        session.dispose()
-    }
+private fun close(
+    client: HttpClient,
+    session: FakeWebSocketSession,
+) {
+    client.close()
+    session.dispose()
 }
 
 private class RecordingTransport(

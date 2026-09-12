@@ -39,7 +39,8 @@ class BinaryIdentityRoundTripTest {
                     val flags = listOf(protectedFirst, !protectedFirst)
                     val payload = if (compressed) gzip else text.toByteString()
                     val pool = flags.mapIndexed { id, protected ->
-                        """<Binary ID="$id" ProtectInMemory="$protected" Compressed="$compressed">${payload.base64()}</Binary>"""
+                        """<Binary ID="$id" ProtectInMemory="$protected" Compressed="$compressed">""" +
+                            "${payload.base64()}</Binary>"
                     }.joinToString("")
                     val references = flags.mapIndexed { id, protected ->
                         val value = if (inline) {
@@ -59,21 +60,7 @@ class BinaryIdentityRoundTripTest {
                     """.trimIndent()
                     val loaded = KeePassDatabase.decodeFromXml(xml.encodeToByteArray(), credentials)
                     assertMixedProtection(loaded)
-                    val fromXml = KeePassDatabase.decodeFromXml(
-                        loaded.encodeAsXml().encodeToByteArray(),
-                        credentials,
-                    )
-                    // Plain XML preserves attachment bytes and references, but
-                    // cannot portably preserve binary memory-protection flags.
-                    assertEquals(1, fromXml.binaries.size)
-                    val exportedReferences = fromXml.content.group.entries.single().binaries
-                    assertEquals(setOf("true", "false"), exportedReferences.map { it.name }.toSet())
-                    assertEquals(2, exportedReferences.size)
-                    for (reference in exportedReferences) {
-                        val binary = fromXml.binaries.getValue(reference.hash)
-                        assertFalse(binary.memoryProtection)
-                        assertContentEquals(text, binary.getContent())
-                    }
+                    assertPlainXmlProtection(loaded)
                     assertMixedProtection(loaded)
                     val v3 = KeePassDatabase.Ver3x.create("Root", Meta(), credentials).let { base ->
                         base.copy(
@@ -100,6 +87,24 @@ class BinaryIdentityRoundTripTest {
                     }
                 }
             }
+        }
+    }
+
+    private fun assertPlainXmlProtection(loaded: KeePassDatabase) {
+        val fromXml = KeePassDatabase.decodeFromXml(
+            loaded.encodeAsXml().encodeToByteArray(),
+            credentials,
+        )
+        // Plain XML preserves attachment bytes and references, but
+        // cannot portably preserve binary memory-protection flags.
+        assertEquals(1, fromXml.binaries.size)
+        val exportedReferences = fromXml.content.group.entries.single().binaries
+        assertEquals(setOf("true", "false"), exportedReferences.map { it.name }.toSet())
+        assertEquals(2, exportedReferences.size)
+        for (reference in exportedReferences) {
+            val binary = fromXml.binaries.getValue(reference.hash)
+            assertFalse(binary.memoryProtection)
+            assertContentEquals(text, binary.getContent())
         }
     }
 
