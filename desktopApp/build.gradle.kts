@@ -1,15 +1,15 @@
 import org.apache.tools.ant.taskdefs.condition.Os
-import org.gradle.api.internal.file.DefaultFilePermissions
-import org.gradle.api.tasks.JavaExec
 import org.gradle.api.tasks.Sync
 import org.gradle.jvm.toolchain.JavaLanguageVersion
 import org.gradle.jvm.toolchain.JavaToolchainService
 import org.gradle.jvm.toolchain.JvmVendorSpec
-import org.gradle.process.CommandLineArgumentProvider
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.jetbrains.compose.desktop.application.tasks.AbstractJPackageTask
 
 plugins {
+    id("keyguard.license-policy")
+    id("keyguard.crypto-dependency-check")
+    id("keyguard.quality")
     alias(libs.plugins.compose)
     alias(libs.plugins.kotlin.plugin.compose)
     alias(libs.plugins.kotlin.multiplatform)
@@ -59,69 +59,25 @@ val bundledAppResources by configurations.creating {
 }
 
 dependencies {
-    add(
-        bundledAppResources.name,
-        project(
-            mapOf(
-                "path" to ":util:instance",
-                "configuration" to "bundledAppResourcesElements",
+    listOf(
+        ":util:instance",
+        ":desktopSshAgent",
+        ":desktopGpgAgent",
+        ":desktopLibNative",
+        ":util:crypto",
+        ":util:io",
+        ":util:zxcvbn",
+    ).forEach { producer ->
+        add(
+            bundledAppResources.name,
+            project(
+                mapOf(
+                    "path" to producer,
+                    "configuration" to "bundledAppResourcesElements",
+                ),
             ),
-        ),
-    )
-    add(
-        bundledAppResources.name,
-        project(
-            mapOf(
-                "path" to ":desktopSshAgent",
-                "configuration" to "bundledAppResourcesElements",
-            ),
-        ),
-    )
-    add(
-        bundledAppResources.name,
-        project(
-            mapOf(
-                "path" to ":desktopGpgAgent",
-                "configuration" to "bundledAppResourcesElements",
-            ),
-        ),
-    )
-    add(
-        bundledAppResources.name,
-        project(
-            mapOf(
-                "path" to ":desktopLibNative",
-                "configuration" to "bundledAppResourcesElements",
-            ),
-        ),
-    )
-    add(
-        bundledAppResources.name,
-        project(
-            mapOf(
-                "path" to ":util:crypto",
-                "configuration" to "bundledAppResourcesElements",
-            ),
-        ),
-    )
-    add(
-        bundledAppResources.name,
-        project(
-            mapOf(
-                "path" to ":util:io",
-                "configuration" to "bundledAppResourcesElements",
-            ),
-        ),
-    )
-    add(
-        bundledAppResources.name,
-        project(
-            mapOf(
-                "path" to ":util:zxcvbn",
-                "configuration" to "bundledAppResourcesElements",
-            ),
-        ),
-    )
+        )
+    }
 }
 
 val jdkVersion = libs.versions.jdk.get().toInt()
@@ -244,7 +200,7 @@ compose.desktop {
             packageVersion = libs.versions.appVersionName.get()
 
             macOS {
-                bundleID = "com.artemchep.keyguard"
+                bundleID = appId
                 signing {
                     val certIdentity = findProperty("cert_identity") as String?
                     if (certIdentity != null) {
@@ -291,10 +247,8 @@ compose.desktop {
     }
 }
 
-afterEvaluate {
-    tasks.named("prepareAppResources") {
-        dependsOn(prepareBundledAppResources)
-    }
+tasks.named { it == "prepareAppResources" }.configureEach {
+    dependsOn(prepareBundledAppResources)
 }
 
 if (Os.isFamily(Os.FAMILY_MAC)) {
@@ -355,7 +309,7 @@ fun Tar.installPackageDistributable(
                 name == "jspawnhelper" || // https://github.com/AChep/keyguard-app/issues/640#issuecomment-4111835953
                 name in executableAppResourceNames
             ) {
-                permissions = DefaultFilePermissions("755".toInt(8))
+                permissions { unix("755") }
             }
         }
     }

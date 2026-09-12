@@ -5,26 +5,19 @@ import com.artemchep.keyguard.buildplugins.cargo.dynamicLibraryName
 import org.gradle.api.tasks.testing.Test
 
 plugins {
-    alias(libs.plugins.kotlin.multiplatform)
+    id("keyguard.quality")
+    id("keyguard.kotlin-multiplatform")
     id("keyguard.rust-multiplatform-library")
 }
 
 kotlin {
     jvm("desktop")
     macosArm64()
-
-    sourceSets {
-        commonTest.dependencies {
-            implementation(kotlin("test"))
-        }
-    }
-
-    jvmToolchain(libs.versions.jdk.get().toInt())
 }
 
 val hostPlatform = detectHostPlatform()
 val desktopLibrary = layout.buildDirectory.file(
-    "cargo-target/${hostPlatform.desktopLibRustTarget}/release/" +
+    "cargo-target/${hostPlatform.rustTarget}/release/" +
         hostPlatform.dynamicLibraryName("keyguard_instance_jni"),
 )
 val nativeFixture = tasks.register<CargoBuildTask>("cargoBuildNativeInstanceFixture") {
@@ -34,17 +27,17 @@ val nativeFixture = tasks.register<CargoBuildTask>("cargoBuildNativeInstanceFixt
     sourceDir.set(layout.projectDirectory.dir("rust"))
     sourceFiles.from(fileTree("rust") { exclude("target/**", "**/target/**") })
     cargoTargetDir.set(layout.buildDirectory.dir("cargo-target"))
-    rustTarget.set(hostPlatform.desktopLibRustTarget)
+    rustTarget.set(hostPlatform.rustTarget)
     cargoPackage.set("keyguard-instance-core")
     cargoArguments.addAll("--locked", "--bin", "instance-fixture")
     outputBinary.set(
         layout.buildDirectory.file(
-            "cargo-target/${hostPlatform.desktopLibRustTarget}/release/" +
+            "cargo-target/${hostPlatform.rustTarget}/release/" +
                 hostPlatform.binaryName("instance-fixture"),
         ),
     )
 }
-tasks.matching { it.name == "compileNativeInstanceDesktop" }.configureEach {
+tasks.named { it == "compileNativeInstanceDesktop" }.configureEach {
     // Package the JNI library after all scheduled writers to the shared Cargo directory finish.
     mustRunAfter(nativeFixture)
 }

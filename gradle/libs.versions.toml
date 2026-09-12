@@ -119,7 +119,6 @@ kotlinCoroutines = "1.11.0"
 kotlinDatetime = "0.7.1-0.6.x-compat"
 # https://github.com/Kotlin/kotlinx-io
 kotlinIo = "0.9.1"
-kotlinDsl = "4.3.0"
 # https://github.com/Kotlin/kotlinx.serialization
 kotlinSerialization = "1.11.0"
 # https://github.com/esensar/kotlinx-serialization-msgpack/releases
@@ -377,9 +376,7 @@ compose = { id = "org.jetbrains.compose", version.ref = "composeMultiplatform" }
 crashlytics = { id = "com.google.firebase.crashlytics", version.ref = "crashlyticsPlugin" }
 detekt = { id = "dev.detekt", version.ref = "detekt" }
 google-services = { id = "com.google.gms.google-services", version.ref = "googleServicesPlugin" }
-kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
-kotlin-kapt = { id = "org.jetbrains.kotlin.kapt", version.ref = "kotlin" }
 kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
 kotlin-plugin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 kotlin-plugin-parcelize = { id = "org.jetbrains.kotlin.plugin.parcelize", version.ref = "kotlin" }

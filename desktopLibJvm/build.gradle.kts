@@ -1,4 +1,5 @@
 plugins {
+    id("keyguard.quality")
     alias(libs.plugins.kotlin.multiplatform)
 }
 

@@ -1,20 +1,20 @@
+import com.artemchep.keyguard.buildplugins.testing.benchmarkReport
+import com.artemchep.keyguard.buildplugins.testing.flightRecorder
+import com.artemchep.keyguard.buildplugins.testing.forwardSystemProperties
+import com.artemchep.keyguard.buildplugins.testing.registerJvmBenchmark
 import com.codingfeline.buildkonfig.compiler.FieldSpec.Type.INT
 import com.codingfeline.buildkonfig.compiler.FieldSpec.Type.STRING
-import com.artemchep.keyguard.buildplugins.resources.ResourcesCommonExtension
 import com.artemchep.keyguard.buildplugins.version.createVersionInfo
 import org.gradle.api.tasks.testing.Test
-import org.gradle.api.tasks.testing.TestFilter
-import org.gradle.api.tasks.testing.logging.TestExceptionFormat
-import org.gradle.api.tasks.testing.logging.TestLogEvent
 import java.time.Duration
 
 plugins {
+    id("keyguard.quality")
     alias(libs.plugins.kotlin.multiplatform)
     alias(libs.plugins.android.kmp.library)
     alias(libs.plugins.kotlin.plugin.parcelize)
     alias(libs.plugins.kotlin.plugin.serialization)
     alias(libs.plugins.ksp)
-    alias(libs.plugins.ktlint)
     alias(libs.plugins.buildkonfig)
     alias(libs.plugins.sqldelight)
     alias(libs.plugins.compose)
@@ -24,6 +24,7 @@ plugins {
     id("keyguard.native-io-consumer")
     id("keyguard.native-zxcvbn-consumer")
     id("keyguard.detekt-custom-rules")
+    id("keyguard.crypto-dependency-check")
 }
 
 // `android`/`main` covers commonMain plus androidMain; `desktop`/`main` covers commonMain plus
@@ -46,17 +47,6 @@ val versionInfo = createVersionInfo(
     marketingVersion = libs.versions.appVersionName.get(),
     logicalVersion = libs.versions.appVersionCode.get().toInt(),
 )
-
-keyguardResources {
-    composeResourcesDir.set(ResourcesCommonExtension.defaultComposeResourcesDir(project))
-    composeFilesDir.set(ResourcesCommonExtension.defaultComposeFilesDir(project))
-    generatedPackageName.set(ResourcesCommonExtension.DEFAULT_PACKAGE_NAME)
-    defaultLocale.set(ResourcesCommonExtension.DEFAULT_LOCALE)
-    hashEntries.putAll(ResourcesCommonExtension.defaultHashEntries())
-    hashKotlinOutputDir.set(ResourcesCommonExtension.defaultHashKotlinOutputDir(project))
-    localeKotlinOutputDir.set(ResourcesCommonExtension.defaultLocaleKotlinOutputDir(project))
-    localeResOutputDir.set(ResourcesCommonExtension.defaultLocaleResOutputDir(project))
-}
 
 tasks.withType<Test>().configureEach {
     timeout.set(Duration.ofMinutes(10))
@@ -174,6 +164,7 @@ kotlin {
                 implementation(libs.bouncycastle.bcpkix)
                 implementation(libs.bouncycastle.bcpg)
                 implementation(libs.bouncycastle.bcprov)
+                implementation(libs.ktor.ktor.client.mock)
             }
         }
 
@@ -231,19 +222,11 @@ kotlin {
         val androidHostTest by getting {
             dependsOn(jvmTest)
             kotlin.srcDir("src/androidUnitTest/kotlin")
-            dependencies {
-                implementation(kotlin("test"))
-                implementation(libs.kotlinx.coroutines.test)
-                implementation(libs.ktor.ktor.client.mock)
-            }
         }
 
         val desktopTest by getting {
             dependsOn(jvmTest)
             dependencies {
-                implementation(kotlin("test"))
-                implementation(libs.kotlinx.coroutines.test)
-                implementation(libs.ktor.ktor.client.mock)
                 // The backup tests inspect the archives the repository wrote
                 // with zip4j's own reader, independently of `util/zip`.
                 implementation(libs.lingala.zip4j)
@@ -342,7 +325,6 @@ kotlin {
                 api(project.dependencies.platform(libs.squareup.okhttp.bom))
                 api(libs.squareup.okhttp)
                 api(libs.squareup.logging.interceptor)
-                api(libs.ktor.ktor.client.okhttp)
                 api(libs.sqlcipher.android)
                 api(libs.kotlinx.coroutines.android)
                 api(libs.kodein.kodein.di.framework.android.x.viewmodel.savedstate)
@@ -394,7 +376,6 @@ kotlin.sourceSets.commonMain {
 }
 
 val desktopTestTask = tasks.named<Test>("desktopTest")
-val desktopTestClassesTask = tasks.named("desktopTestClasses")
 
 desktopTestTask.configure {
     filter {
@@ -406,396 +387,105 @@ desktopTestTask.configure {
     }
 }
 
-tasks.register<Test>("vaultSearchBenchmark") {
-    group = "verification"
-    description = "Runs the vault search JVM benchmark suite from desktopTest."
+val vaultSearchBenchmarkProperties = listOf(
+    "keyguard.vault-search.benchmark.warmup-iterations",
+    "keyguard.vault-search.benchmark.measurement-iterations",
+)
 
-    dependsOn(desktopTestClassesTask)
-
-    testClassesDirs = desktopTestTask.get().testClassesDirs
-    classpath = desktopTestTask.get().classpath
-
-    maxParallelForks = 1
-    forkEvery = 0L
-    outputs.upToDateWhen { false }
-
-    systemProperty("user.language", "en")
-    systemProperty("user.country", "US")
-    val reportFile = layout.buildDirectory
-        .file("reports/vault-search/benchmark.csv")
-        .get()
-        .asFile
-    systemProperty(
+registerJvmBenchmark(
+    "vaultSearchBenchmark",
+    "Runs the vault search JVM benchmark suite from desktopTest.",
+    "com.artemchep.keyguard.feature.home.vault.search.benchmark.*",
+) {
+    forwardSystemProperties(vaultSearchBenchmarkProperties)
+    benchmarkReport(
         "keyguard.vault-search.benchmark.output",
-        reportFile.absolutePath,
+        layout.buildDirectory.file("reports/vault-search/benchmark.csv"),
+        clearExisting = true,
     )
-    listOf(
-        "keyguard.vault-search.benchmark.warmup-iterations",
-        "keyguard.vault-search.benchmark.measurement-iterations",
-    ).forEach { propertyName ->
-        providers.systemProperty(propertyName).orNull?.let { propertyValue ->
-            systemProperty(propertyName, propertyValue)
-        }
-    }
-    doFirst {
-        reportFile.parentFile.mkdirs()
-        reportFile.delete()
-    }
-
-    filter {
-        includeTestsMatching("com.artemchep.keyguard.feature.home.vault.search.benchmark.*")
-        isFailOnNoMatchingTests = true
-    }
-
-    testLogging {
-        events = setOf(
-            TestLogEvent.FAILED,
-            TestLogEvent.PASSED,
-            TestLogEvent.SKIPPED,
-            TestLogEvent.STANDARD_ERROR,
-            TestLogEvent.STANDARD_OUT,
-        )
-        exceptionFormat = TestExceptionFormat.FULL
-        showExceptions = true
-        showStackTraces = true
-        showStandardStreams = true
-    }
 }
 
-tasks.register<Test>("vaultSearchProfile") {
-    group = "verification"
-    description = "Profiles Vault search CPU and allocation pressure with Java Flight Recorder."
-
-    dependsOn(desktopTestClassesTask)
-
-    testClassesDirs = desktopTestTask.get().testClassesDirs
-    classpath = desktopTestTask.get().classpath
-
-    maxParallelForks = 1
-    forkEvery = 0L
-    outputs.upToDateWhen { false }
-
-    systemProperty("user.language", "en")
-    systemProperty("user.country", "US")
-    val reportFile = layout.buildDirectory
-        .file("reports/vault-search/profile-benchmark.csv")
-        .get()
-        .asFile
-    systemProperty(
+registerJvmBenchmark(
+    "vaultSearchProfile",
+    "Profiles Vault search CPU and allocation pressure with Java Flight Recorder.",
+    "com.artemchep.keyguard.feature.home.vault.search.benchmark.*",
+) {
+    forwardSystemProperties(vaultSearchBenchmarkProperties)
+    benchmarkReport(
         "keyguard.vault-search.benchmark.output",
-        reportFile.absolutePath,
+        layout.buildDirectory.file("reports/vault-search/profile-benchmark.csv"),
+        clearExisting = true,
     )
-    listOf(
-        "keyguard.vault-search.benchmark.warmup-iterations",
-        "keyguard.vault-search.benchmark.measurement-iterations",
-    ).forEach { propertyName ->
-        providers.systemProperty(propertyName).orNull?.let { propertyValue ->
-            systemProperty(propertyName, propertyValue)
-        }
-    }
-
-    filter {
-        includeTestsMatching("com.artemchep.keyguard.feature.home.vault.search.benchmark.*")
-        isFailOnNoMatchingTests = true
-    }
-
-    testLogging {
-        events = setOf(
-            TestLogEvent.FAILED,
-            TestLogEvent.PASSED,
-            TestLogEvent.SKIPPED,
-            TestLogEvent.STANDARD_ERROR,
-            TestLogEvent.STANDARD_OUT,
-        )
-        exceptionFormat = TestExceptionFormat.FULL
-        showExceptions = true
-        showStackTraces = true
-        showStandardStreams = true
-    }
-
-    val recordingFile = layout.buildDirectory
-        .file("reports/vault-search/vault-search-profile.jfr")
-        .get()
-        .asFile
-    doFirst {
-        reportFile.parentFile.mkdirs()
-        reportFile.delete()
-        recordingFile.delete()
-    }
-    jvmArgs(
-        "-XX:StartFlightRecording=filename=${recordingFile.absolutePath},settings=profile,dumponexit=true",
-        "-XX:FlightRecorderOptions=stackdepth=256",
-    )
+    flightRecorder(layout.buildDirectory.file("reports/vault-search/vault-search-profile.jfr"), clearExisting = true)
 }
 
-tasks.register<Test>("bitwardenCryptoBenchmark") {
-    group = "verification"
-    description = "Runs the Bitwarden BC-vs-native crypto JVM benchmark suite from desktopTest."
+registerJvmBenchmark(
+    "bitwardenCryptoBenchmark",
+    "Runs the Bitwarden BC-vs-native crypto JVM benchmark suite from desktopTest.",
+    "com.artemchep.keyguard.crypto.benchmark.*",
+)
+registerJvmBenchmark(
+    "cipherSnapshotBenchmark",
+    "Runs the cipher snapshot loading JVM benchmark suite from desktopTest.",
+    "com.artemchep.keyguard.provider.bitwarden.usecase.benchmark.*",
+)
+registerJvmBenchmark(
+    "tldServiceBenchmark",
+    "Runs the TLD service JVM benchmark suite from desktopTest.",
+    "com.artemchep.keyguard.common.service.tld.impl.benchmark.*",
+)
 
-    dependsOn(desktopTestClassesTask)
+val watchtowerBenchmarkProperties = listOf(
+    "keyguard.watchtower.benchmark.case",
+    "keyguard.watchtower.benchmark.corpus-size",
+    "keyguard.watchtower.benchmark.service-count",
+    "keyguard.watchtower.benchmark.warmup-iterations",
+    "keyguard.watchtower.benchmark.measurement-iterations",
+)
 
-    testClassesDirs = desktopTestTask.get().testClassesDirs
-    classpath = desktopTestTask.get().classpath
-
-    maxParallelForks = 1
-    forkEvery = 0L
-    outputs.upToDateWhen { false }
-
-    systemProperty("user.language", "en")
-    systemProperty("user.country", "US")
-
-    filter {
-        includeTestsMatching("com.artemchep.keyguard.crypto.benchmark.*")
-        isFailOnNoMatchingTests = true
-    }
-
-    testLogging {
-        events =
-            setOf(
-                TestLogEvent.FAILED,
-                TestLogEvent.PASSED,
-                TestLogEvent.SKIPPED,
-                TestLogEvent.STANDARD_ERROR,
-                TestLogEvent.STANDARD_OUT,
-            )
-        exceptionFormat = TestExceptionFormat.FULL
-        showExceptions = true
-        showStackTraces = true
-        showStandardStreams = true
-    }
+registerJvmBenchmark(
+    "watchtowerBenchmark",
+    "Benchmarks every Watchtower check on the JVM.",
+    "com.artemchep.keyguard.common.usecase.impl.benchmark.WatchtowerBenchmarkTest",
+) {
+    forwardSystemProperties(watchtowerBenchmarkProperties)
+    benchmarkReport("keyguard.watchtower.benchmark.output", layout.buildDirectory.file("reports/watchtower/benchmark.csv"))
 }
 
-tasks.register<Test>("cipherSnapshotBenchmark") {
-    group = "verification"
-    description = "Runs the cipher snapshot loading JVM benchmark suite from desktopTest."
-
-    dependsOn(desktopTestClassesTask)
-
-    testClassesDirs = desktopTestTask.get().testClassesDirs
-    classpath = desktopTestTask.get().classpath
-
-    maxParallelForks = 1
-    forkEvery = 0L
-    outputs.upToDateWhen { false }
-
-    systemProperty("user.language", "en")
-    systemProperty("user.country", "US")
-
-    filter {
-        includeTestsMatching("com.artemchep.keyguard.provider.bitwarden.usecase.benchmark.*")
-        isFailOnNoMatchingTests = true
-    }
-
-    testLogging {
-        events =
-            setOf(
-                TestLogEvent.FAILED,
-                TestLogEvent.PASSED,
-                TestLogEvent.SKIPPED,
-                TestLogEvent.STANDARD_ERROR,
-                TestLogEvent.STANDARD_OUT,
-            )
-        exceptionFormat = TestExceptionFormat.FULL
-        showExceptions = true
-        showStackTraces = true
-        showStandardStreams = true
-    }
+registerJvmBenchmark(
+    "watchtowerProfile",
+    "Profiles every Watchtower check and writes a Java Flight Recorder capture.",
+    "com.artemchep.keyguard.common.usecase.impl.benchmark.WatchtowerBenchmarkTest",
+) {
+    forwardSystemProperties(watchtowerBenchmarkProperties)
+    benchmarkReport("keyguard.watchtower.benchmark.output", layout.buildDirectory.file("reports/watchtower/profile-benchmark.csv"))
+    flightRecorder(layout.buildDirectory.file("reports/watchtower/watchtower-profile.jfr"))
 }
 
-tasks.register<Test>("tldServiceBenchmark") {
-    group = "verification"
-    description = "Runs the TLD service JVM benchmark suite from desktopTest."
+val cipherUrlCheckBenchmarkProperties = listOf(
+    "keyguard.cipher-url-check.benchmark.case",
+    "keyguard.cipher-url-check.benchmark.operation-count",
+    "keyguard.cipher-url-check.benchmark.warmup-iterations",
+    "keyguard.cipher-url-check.benchmark.measurement-iterations",
+)
 
-    dependsOn(desktopTestClassesTask)
-
-    testClassesDirs = desktopTestTask.get().testClassesDirs
-    classpath = desktopTestTask.get().classpath
-
-    maxParallelForks = 1
-    forkEvery = 0L
-    outputs.upToDateWhen { false }
-
-    systemProperty("user.language", "en")
-    systemProperty("user.country", "US")
-
-    filter {
-        includeTestsMatching("com.artemchep.keyguard.common.service.tld.impl.benchmark.*")
-        isFailOnNoMatchingTests = true
-    }
-
-    testLogging {
-        events =
-            setOf(
-                TestLogEvent.FAILED,
-                TestLogEvent.PASSED,
-                TestLogEvent.SKIPPED,
-                TestLogEvent.STANDARD_ERROR,
-                TestLogEvent.STANDARD_OUT,
-            )
-        exceptionFormat = TestExceptionFormat.FULL
-        showExceptions = true
-        showStackTraces = true
-        showStandardStreams = true
-    }
+registerJvmBenchmark(
+    "cipherUrlCheckBenchmark",
+    "Benchmarks every CipherUrlCheckImpl match mode on diverse JVM inputs.",
+    "com.artemchep.keyguard.common.usecase.impl.benchmark.CipherUrlCheckBenchmarkTest",
+) {
+    forwardSystemProperties(cipherUrlCheckBenchmarkProperties)
+    benchmarkReport("keyguard.cipher-url-check.benchmark.output", layout.buildDirectory.file("reports/cipher-url-check/benchmark.csv"))
 }
 
-val watchtowerBenchmarkTestFilter: TestFilter.() -> Unit = {
-    includeTestsMatching(
-        "com.artemchep.keyguard.common.usecase.impl.benchmark.WatchtowerBenchmarkTest",
-    )
-    isFailOnNoMatchingTests = true
-}
-
-fun Test.configureWatchtowerBenchmark() {
-    dependsOn(desktopTestClassesTask)
-
-    testClassesDirs = desktopTestTask.get().testClassesDirs
-    classpath = desktopTestTask.get().classpath
-
-    maxParallelForks = 1
-    forkEvery = 0L
-    outputs.upToDateWhen { false }
-
-    systemProperty("user.language", "en")
-    systemProperty("user.country", "US")
-    systemProperty(
-        "keyguard.watchtower.benchmark.output",
-        layout.buildDirectory.file("reports/watchtower/benchmark.csv").get().asFile.absolutePath,
-    )
-    listOf(
-        "keyguard.watchtower.benchmark.case",
-        "keyguard.watchtower.benchmark.corpus-size",
-        "keyguard.watchtower.benchmark.service-count",
-        "keyguard.watchtower.benchmark.warmup-iterations",
-        "keyguard.watchtower.benchmark.measurement-iterations",
-    ).forEach { propertyName ->
-        providers.systemProperty(propertyName).orNull?.let { propertyValue ->
-            systemProperty(propertyName, propertyValue)
-        }
-    }
-
-    filter(watchtowerBenchmarkTestFilter)
-
-    testLogging {
-        events =
-            setOf(
-                TestLogEvent.FAILED,
-                TestLogEvent.PASSED,
-                TestLogEvent.SKIPPED,
-                TestLogEvent.STANDARD_ERROR,
-                TestLogEvent.STANDARD_OUT,
-            )
-        exceptionFormat = TestExceptionFormat.FULL
-        showExceptions = true
-        showStackTraces = true
-        showStandardStreams = true
-    }
-}
-
-tasks.register<Test>("watchtowerBenchmark") {
-    group = "verification"
-    description = "Benchmarks every Watchtower check on the JVM."
-    configureWatchtowerBenchmark()
-}
-
-tasks.register<Test>("watchtowerProfile") {
-    group = "verification"
-    description = "Profiles every Watchtower check and writes a Java Flight Recorder capture."
-    configureWatchtowerBenchmark()
-    systemProperty(
-        "keyguard.watchtower.benchmark.output",
-        layout.buildDirectory.file("reports/watchtower/profile-benchmark.csv").get().asFile.absolutePath,
-    )
-
-    val recordingFile = layout.buildDirectory
-        .file("reports/watchtower/watchtower-profile.jfr")
-        .get()
-        .asFile
-    doFirst {
-        recordingFile.parentFile.mkdirs()
-    }
-    jvmArgs(
-        "-XX:StartFlightRecording=filename=${recordingFile.absolutePath},settings=profile,dumponexit=true",
-        "-XX:FlightRecorderOptions=stackdepth=256",
-    )
-}
-
-fun Test.configureCipherUrlCheckBenchmark() {
-    dependsOn(desktopTestClassesTask)
-
-    testClassesDirs = desktopTestTask.get().testClassesDirs
-    classpath = desktopTestTask.get().classpath
-
-    maxParallelForks = 1
-    forkEvery = 0L
-    outputs.upToDateWhen { false }
-
-    systemProperty("user.language", "en")
-    systemProperty("user.country", "US")
-    systemProperty(
-        "keyguard.cipher-url-check.benchmark.output",
-        layout.buildDirectory.file("reports/cipher-url-check/benchmark.csv").get().asFile.absolutePath,
-    )
-    listOf(
-        "keyguard.cipher-url-check.benchmark.case",
-        "keyguard.cipher-url-check.benchmark.operation-count",
-        "keyguard.cipher-url-check.benchmark.warmup-iterations",
-        "keyguard.cipher-url-check.benchmark.measurement-iterations",
-    ).forEach { propertyName ->
-        providers.systemProperty(propertyName).orNull?.let { propertyValue ->
-            systemProperty(propertyName, propertyValue)
-        }
-    }
-
-    filter {
-        includeTestsMatching(
-            "com.artemchep.keyguard.common.usecase.impl.benchmark.CipherUrlCheckBenchmarkTest",
-        )
-        isFailOnNoMatchingTests = true
-    }
-
-    testLogging {
-        events =
-            setOf(
-                TestLogEvent.FAILED,
-                TestLogEvent.PASSED,
-                TestLogEvent.SKIPPED,
-                TestLogEvent.STANDARD_ERROR,
-                TestLogEvent.STANDARD_OUT,
-            )
-        exceptionFormat = TestExceptionFormat.FULL
-        showExceptions = true
-        showStackTraces = true
-        showStandardStreams = true
-    }
-}
-
-tasks.register<Test>("cipherUrlCheckBenchmark") {
-    group = "verification"
-    description = "Benchmarks every CipherUrlCheckImpl match mode on diverse JVM inputs."
-    configureCipherUrlCheckBenchmark()
-}
-
-tasks.register<Test>("cipherUrlCheckProfile") {
-    group = "verification"
-    description = "Profiles CipherUrlCheckImpl and writes a Java Flight Recorder capture."
-    configureCipherUrlCheckBenchmark()
-    systemProperty(
-        "keyguard.cipher-url-check.benchmark.output",
-        layout.buildDirectory.file("reports/cipher-url-check/profile-benchmark.csv").get().asFile.absolutePath,
-    )
-
-    val recordingFile = layout.buildDirectory
-        .file("reports/cipher-url-check/cipher-url-check-profile.jfr")
-        .get()
-        .asFile
-    doFirst {
-        recordingFile.parentFile.mkdirs()
-    }
-    jvmArgs(
-        "-XX:StartFlightRecording=filename=${recordingFile.absolutePath},settings=profile,dumponexit=true",
-        "-XX:FlightRecorderOptions=stackdepth=256",
-    )
+registerJvmBenchmark(
+    "cipherUrlCheckProfile",
+    "Profiles CipherUrlCheckImpl and writes a Java Flight Recorder capture.",
+    "com.artemchep.keyguard.common.usecase.impl.benchmark.CipherUrlCheckBenchmarkTest",
+) {
+    forwardSystemProperties(cipherUrlCheckBenchmarkProperties)
+    benchmarkReport("keyguard.cipher-url-check.benchmark.output", layout.buildDirectory.file("reports/cipher-url-check/profile-benchmark.csv"))
+    flightRecorder(layout.buildDirectory.file("reports/cipher-url-check/cipher-url-check-profile.jfr"))
 }
 
 // See:
@@ -847,18 +537,18 @@ sqldelight {
     linkSqlite.set(false)
 }
 
-// Reason: Task ':common:generateNoneReleaseLintVitalModel' uses this output of
-// task ':common:copyFontsToAndroidAssets' without declaring an explicit or
-// implicit dependency. This can lead to incorrect results being produced,
-// depending on what order the tasks are executed.
-tasks.findByName("generateNoneReleaseLintVitalModel")?.dependsOn("copyFontsToAndroidAssets")
-tasks.findByName("generatePlayStoreReleaseLintVitalModel")?.dependsOn("copyFontsToAndroidAssets")
-
 // The common source set contains KSP output. Keep ktlint's read of that source ordered after
 // generation so Gradle can validate the task graph deterministically.
-tasks.matching {
-    it.name == "runKtlintCheckOverCommonMainSourceSet" ||
-        it.name == "runKtlintFormatOverCommonMainSourceSet"
+tasks.named {
+    it == "runKtlintCheckOverCommonMainSourceSet" ||
+        it == "runKtlintFormatOverCommonMainSourceSet"
 }.configureEach {
     mustRunAfter("kspCommonMainKotlinMetadata")
+}
+
+// Preserve the existing SSH dependency-check entry point used by CI.
+tasks.register("checkSshjDependencies") {
+    group = "verification"
+    description = "Compatibility alias for the root crypto dependency policy."
+    dependsOn("checkBouncyCastleProductionDependencies")
 }
